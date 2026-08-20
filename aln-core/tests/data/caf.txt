@@ -1,0 +1,7 @@
+simple	500,5,1.5,2.5,chr1,1,10,7,AluY,SINE/Alu,1,10,9,0,,1,ACGTACGT/AAC
+gapq	500,5,1.5,2.5,chr1,1,8,7,AluY,SINE/Alu,1,10,9,0,,2,ACGT+TT+GTAC
+gaps	500,5,1.5,2.5,chr1,1,10,7,AluY,SINE/Alu,1,8,9,0,,3,ACGT-TT-GTAC
+both	500,5,1.5,2.5,chr1,1,8,7,L1,LINE/L1,1,9,9,0,,4,AAG/T-AC-T/CT+AAT+A
+minus	500,5,1.5,2.5,chr1,1,10,7,AluY,SINE/Alu,1,10,9,1,,5,ACGTACGTAC
+hashname	500,5,1.5,2.5,chr1,1,10,7,AluY,SINE/Alu,1,10,9,0,,6,ACGTACGTAC
+trailgap	500,5,1.5,2.5,chr1,1,8,7,AluY,SINE/Alu,1,10,9,0,,7,ACGTACGT+AC

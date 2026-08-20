@@ -1,0 +1,16 @@
+[package]
+name = "aln-parasail"
+version.workspace = true
+edition.workspace = true
+license = "BSD-3-Clause AND CC0-1.0"
+description = "parasail SIMD backend for the Dfam/GIRI alignment stack"
+
+[dependencies]
+aln-core.workspace = true
+aln-engine.workspace = true
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+aln-reference.workspace = true

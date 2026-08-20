@@ -1,0 +1,10 @@
+[package]
+name = "aln-reference"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plain O(mn) affine-gap reference aligner — the correctness arbiter for the SIMD backends"
+
+[dependencies]
+aln-core.workspace = true
+aln-engine.workspace = true

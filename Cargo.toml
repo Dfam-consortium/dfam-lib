@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "aln-core",
+    "aln-engine",
+    "aln-parasail",
+    "aln-rmblastn",
+    "aln-reference",
+    "dfam-stk-io",
+]
+
+# aln-rmblast is deliberately NOT a member: it path-depends on a sibling
+# checkout of `rmblast-port`, and an unresolvable path dependency fails
+# *workspace resolution* — it would make `cargo build` fail for every crate
+# here, not just that one, on any machine without that checkout.  Excluding it
+# keeps the workspace loadable from a bare clone.  To work on it, put
+# `rmblast-port` beside `dfam-lib-project` (see README) and move the entry back
+# into `members`.
+exclude = ["aln-rmblast"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "CC0-1.0"
+repository = "https://github.com/Dfam-consortium/dfam-lib"
+
+[workspace.dependencies]
+aln-core = { path = "aln-core" }
+aln-engine = { path = "aln-engine" }
+aln-parasail = { path = "aln-parasail" }
+aln-rmblastn = { path = "aln-rmblastn" }
+aln-reference = { path = "aln-reference" }
+dfam-stk-io = { path = "dfam-stk-io" }
+
+thiserror = "2"
+rayon = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

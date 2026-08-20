@@ -1,0 +1,10 @@
+200 8.3 0 14.3 q 1 12 (5) s 1 14 (3)
+
+  q                      1 ACGT--ACGTAAGT 12
+                               --     v  
+  s                      1 ACGTTTACGTACGT 14
+
+Matrix = 14p35g
+Transitions / transversions = 0.00 (0/1)
+Gap_init rate = 0.09 (1 / 11), avg. gap size = 2.00 (2 / 1)
+

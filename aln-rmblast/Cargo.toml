@@ -1,0 +1,39 @@
+[package]
+name = "aln-rmblast"
+version = "0.1.0"
+edition = "2021"
+license = "CC0-1.0"
+repository = "https://github.com/Dfam-consortium/dfam-lib"
+description = "rmblast search-engine backend for the Dfam/GIRI alignment stack"
+
+# This crate is NOT a member of the dfam-lib workspace (see `exclude` in the
+# root Cargo.toml): it depends on RMBlast, which is a private repository, and an
+# unresolvable dependency fails *workspace resolution* — it would break
+# `cargo build` for every crate in the workspace, not just this one.  Standing
+# alone means `.workspace = true` inheritance is unavailable, so the package
+# fields above and the dependency versions below are spelled out.
+[workspace]
+
+[dependencies]
+aln-core = { path = "../aln-core" }
+aln-engine = { path = "../aln-engine" }
+rayon = "1"
+anyhow = "1"
+
+# The Rust port of rmblast, pinned to a release tag rather than taken from a
+# sibling checkout, so this builds from any directory layout.  RMBlast is a
+# private repository, hence the SSH URL: cargo authenticates through the local
+# ssh-agent, and `.cargo/config.toml` here sets `net.git-fetch-with-cli` so it
+# uses the git CLI's credentials rather than libgit2's narrower handling.
+#
+# rmblast-lib's default `alp-fit` feature vendors ALP and needs a C++ toolchain;
+# `default-features = false` drops it, at the cost of the last-resort Gumbel
+# parameter fit in the E-value statistics hierarchy.
+rmblast-lib = { git = "ssh://git@github.com/Dfam-consortium/RMBlast.git", tag = "3.0.2" }
+
+# To develop against a local rmblast-port checkout, replace the line above with
+# the path below.  A `[patch]` section does NOT work here: cargo loads the
+# original git source before applying the patch, so it would still need to reach
+# the private repository.
+#
+# rmblast-lib = { path = "../../../rmblast-port/rmblast/rmblast-lib" }

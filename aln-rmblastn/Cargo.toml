@@ -1,0 +1,11 @@
+[package]
+name = "aln-rmblastn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SearchEngine backed by the external rmblastn binary — what RepeatMasker actually runs"
+
+[dependencies]
+aln-core.workspace = true
+aln-engine.workspace = true
+tempfile = "3"

@@ -1,0 +1,10 @@
+400 0 0 0 q 1 16 (4) C s (9) 16 1
+
+  q                      1 ACGTACGTACGTACGT 16
+                                           
+C s                     16 ACGTACGTACGTACGT 1
+
+Matrix = Unknown
+Transitions / transversions = 1.00 (0/0)
+Gap_init rate = 0.00 (0 / 15), avg. gap size = 0.0 (0 / 0)
+

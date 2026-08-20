@@ -1,0 +1,10 @@
+500 5 0 0 chr1 1 20 (0) AluY 1 20 (0) 1
+
+  chr1                   1 ACGTACGTACGTACGTACGT 20
+                                  v            
+  AluY                   1 ACGTACGAACGTACGTACGT 20
+
+Matrix = Unknown
+Transitions / transversions = 0.00 (0/1)
+Gap_init rate = 0.00 (0 / 19), avg. gap size = 0.0 (0 / 0)
+
