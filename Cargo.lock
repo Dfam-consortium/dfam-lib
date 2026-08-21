@@ -266,8 +266,8 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "smitten"
-version = "0.1.1"
-source = "git+https://github.com/Dfam-consortium/Smitten.git#2bd6be1942e5ac3ef39bd8427aae4be7590f95ea"
+version = "0.1.0"
+source = "git+https://github.com/Dfam-consortium/Smitten.git?tag=v1.0.1-alpha#9d4e8453ddcbb5239b2354a03c6ee8241ba2fe0c"
 dependencies = [
  "regex",
 ]

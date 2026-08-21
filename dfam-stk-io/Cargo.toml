@@ -10,4 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 aln-core = { path = "../aln-core" }
-smitten = { git = "https://github.com/Dfam-consortium/Smitten.git" }
+# Pinned: without a tag this resolves to whatever the default branch holds
+# at fetch time, so two clones of the same dfam-lib tag can build different
+# code.
+smitten = { git = "https://github.com/Dfam-consortium/Smitten.git", tag = "v1.0.1-alpha" }
