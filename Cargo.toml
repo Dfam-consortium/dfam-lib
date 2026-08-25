@@ -9,13 +9,12 @@ members = [
     "dfam-stk-io",
 ]
 
-# aln-rmblast is deliberately NOT a member: it path-depends on a sibling
-# checkout of `rmblast-port`, and an unresolvable path dependency fails
-# *workspace resolution* — it would make `cargo build` fail for every crate
-# here, not just that one, on any machine without that checkout.  Excluding it
-# keeps the workspace loadable from a bare clone.  To work on it, put
-# `rmblast-port` beside `dfam-lib-project` (see README) and move the entry back
-# into `members`.
+# aln-rmblast is deliberately NOT a member: it depends on RMBlast, which is
+# still private, and an unresolvable dependency fails *workspace resolution* —
+# it would make `cargo build` fail for every crate here, not just that one, on
+# any machine without access.  Excluding it keeps the workspace loadable from a
+# bare clone; `cargo build` inside aln-rmblast/ is a separate, opt-in step.
+# Move the entry back into `members` once RMBlast is public.
 exclude = ["aln-rmblast"]
 
 [workspace.package]

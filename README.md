@@ -1,33 +1,61 @@
 # dfam-lib
 
-A Rust alignment stack for the `acons` / `autocons` / `amaln` port, designed to
-be adopted by `dfam-curator` without a second, competing set of core types.
-
-Status: **foundation complete and validated; parasail SIMD backend working.**
+A Rust pairwise-aligner interface, pairwise and multiple sequence alignment 
+datastructures/functions, and utility functions for the processing and
+analysis of transposable element families.
 
 ```
 dfam-lib/
 ├── aln-core/        sequences, matrices, alignments, divergence, MSA,
-│                    consensus calling, output formats, FASTA I/O
+│                    consensus calling, output formats, FASTA / 2bit /
+│                    crossmatch I/O
 ├── aln-engine/      the two traits + parallel drivers
 ├── aln-parasail/    parasail 2.6.2 SIMD backend (vendored subset)
+├── aln-reference/   plain O(mn) Gotoh implementation for comparison
+├── aln-rmblastn/    SearchEngine over the external rmblastn binary
 ├── aln-rmblast/     SearchEngine over the rmblast Rust port (excluded — see below)
-├── aln-reference/   plain O(mn) Gotoh — the correctness arbiter
-└── autocons/        the first tool: N best consensus sequences
+├── dfam-stk-io/     Stockholm 1.0, and the bridge to MultiAlign
+├── docs/            notes too long to sit in a doc comment
+└── tools/           shell probes for the C++ binaries this stack replaces
 ```
 
-`aln-rmblast` is **excluded from the workspace** and stands alone
-(`aln-rmblast/Cargo.toml` carries its own `[workspace]` table). It depends on
-[RMBlast](https://github.com/Dfam-consortium/RMBlast) — currently a private
-repository — pinned to tag `3.0.2`. An unresolvable dependency fails *workspace
-resolution*, so were it a member, nobody without access to that repository could
-build any crate here. As it stands the workspace loads from a bare clone, and
-`cargo build` inside `aln-rmblast/` is a separate, opt-in step that needs SSH
-access to RMBlast (`aln-rmblast/.cargo/config.toml` sets
-`net.git-fetch-with-cli` so your normal git credentials apply). To develop
-against a local `rmblast-port` checkout instead, swap the `git`/`tag` dependency
-for the commented-out `path` line beneath it — a `[patch]` section will not do,
-because cargo loads the original source before applying a patch.
+`autocons` is no longer here. It moved to `dfam-curator` alongside `cons-core`
+and the rest of the consensus tooling, and now consumes this repository like any
+other caller — see [Consumers](#consumers).
+
+## The workspace
+
+The root `Cargo.toml` has a `[workspace]` table and no `[package]`: a *virtual*
+workspace, a directory that owns member crates but builds nothing itself. The
+members share one `target/`, one `Cargo.lock` and one resolved dependency graph,
+so `cargo test` at the root compiles `aln-core` once however many members depend
+on it, and a dependency declared once resolves once for all of them.
+
+Settings that must not drift live in `[workspace.package]` and
+`[workspace.dependencies]`; members write `version.workspace = true` and
+`thiserror.workspace = true` rather than repeating a value someone then has to
+keep in sync by hand. Path entries in `[workspace.dependencies]` are what wire
+the members to each other.
+
+Useful flags: `-p aln-core` scopes a command to one member and `--workspace`
+widens it to all of them, while `--all-targets` reaches the examples, benches and
+test targets a bare `cargo check` leaves alone.
+
+`aln-rmblast` is deliberately **not** a member. It depends on
+[RMBlast](https://github.com/Dfam-consortium/RMBlast), pinned to tag `3.0.2` and
+still a private repository, and an unresolvable dependency fails *workspace
+resolution* — as a member it would break `cargo build` for every crate here, not
+only itself. Excluding it keeps the workspace loadable from a bare clone; the
+crate carries its own empty `[workspace]` table and its own `Cargo.lock`, and
+building it is a separate opt-in step. The dependency is written over HTTPS
+rather than SSH, so nothing about it has to change when RMBlast goes public, and
+`aln-rmblast/.cargo/config.toml` sets `net.git-fetch-with-cli` so the git CLI's
+credentials handle the private fetch in the meantime.
+
+To develop against a local `rmblast-port` checkout, swap the `git`/`tag`
+dependency for the commented-out `path` line beneath it. A `[patch]` section
+will not serve here: cargo loads the original source before applying a patch,
+and the original source is the part that needs credentials.
 
 ## The three conventions
 
@@ -216,6 +244,30 @@ rather than handing back a wrong alignment. Use a one-sided semi-global mode, or
 `aln-reference`, if you need the path itself. `Local` — what `acons` uses — is
 unaffected.
 
+### Memory scales with thread count, not input size
+
+The traceback kernels allocate an `m × n` matrix per in-flight alignment, and
+each worker holds one. Measured through `autocons`, which is the heaviest
+consumer:
+
+| input | threads | wall | peak RSS |
+|---|---|---|---|
+| 120 × 2.5 kb | 1 | 73.3 s | 41 MB |
+| | 4 | 20.0 s | 93 MB |
+| | 8 | 10.7 s | 158 MB |
+| | 16 | 10.9 s | 248 MB |
+| 20 × 10 kb | 4 | 55.8 s | 1.56 GB |
+| | 16 | 36.3 s | 5.40 GB |
+
+Two things follow. Throughput **stops improving past ~8 threads** on 2.5 kb
+input — the work is memory-bandwidth-bound well before it is core-bound, and
+more workers only add allocation churn. And at 10 kb the cost is roughly
+**350 MB per worker**, quadratic in sequence length, so long families need the
+thread count chosen deliberately rather than left at the core count. A caller
+holding `O(n²)` alignments should estimate this at startup; `autocons` does, and
+warns with a concrete `--threads` suggestion when the estimate would exceed half
+of `MemAvailable`.
+
 ## aln-rmblast
 
 The `SearchEngine` side: seeded database search over the Rust rmblast port.
@@ -267,6 +319,109 @@ Trigger: any hit that does not start at the very beginning of the subject.
 `cargo run -p aln-rmblast --example left_flank_panic` reproduces it and suggests
 a one-line fix. Two tests are `#[cfg_attr(debug_assertions, ignore)]` for this
 reason; they pass under `cargo test -p aln-rmblast --release`.
+
+### Searching in batches
+
+Driving a search engine one pair at a time rebuilds a query lookup table per
+call and scans a single subject, which throws away the point of seeding.
+`RmblastEngine::one_to_many` and `::all_vs_all` issue **one** search and
+demultiplex the results — the two shapes `autocons` needs for refinement and for
+reference selection.
+
+Unlike a pairwise aligner, rmblast can return several HSPs for one
+`(query, subject)` pair: an instance interrupted by an insertion, or one
+matching on both strands. `mask_level` is the filter — an HSP is dropped when a
+higher-scoring HSP already covers more than that percentage of its **query**
+span. RepeatMasker's default is 80, and 101 disables it. Survivors are all
+returned, so one instance can contribute more than one row to an MSA, which is
+GIRI's own `FRAGMENT` model and needs nothing downstream to change.
+
+**Masking is applied per pair here, not across subjects.** rmblast's own
+`apply_mask_level` follows NCBI's `Blast_HSPResultsApplyMasklevel` and ranks a
+query's HSPs across *all* subjects together, so a hit against one subject can
+suppress a hit against another. That is right for genome annotation, where you
+want one family per region, and wrong here: in an all-against-all search every
+sequence hits itself perfectly over 100% of its own query span, and cross-subject
+masking then discards essentially every real cross-hit. Measured: with
+cross-subject masking at 80, 29 of 30 families produced no consensus at all. So
+these two entry points search with masking disabled and apply the same rule per
+pair afterwards.
+
+## aln-rmblastn
+
+The same trait over the **external `rmblastn` binary** — what RepeatMasker
+actually runs. It spawns a process and writes temp files, so it is slower on
+small inputs and cannot be unit-tested, but its output is the reference for
+anything that has to agree with published annotation, and it is the only path
+that can search a prepared BLAST database. Choosing between it and the
+in-process port is a deployment decision, not a correctness one, which is why
+both sit behind `SearchEngine`.
+
+Flags follow `NCBIBlastSearchEngine.pm`, so the gap-cost conversion above
+applies here too: crossmatch's `-25`/`-5` goes out as `-gapopen 20 -gapextend 5`.
+X-drop is not an independent knob — NCBI derives all three cutoffs from the
+score floor (`min_score × 2`, `÷ 2`, `× 1`), so lowering `min_score` also
+shortens extensions.
+
+Two things it refuses rather than guesses:
+
+- **It will not synthesise a matrix.** `SearchParams::matrix` holds a *parsed*
+  matrix in crossmatch layout and NCBI's files are the transpose, so
+  `RmblastnOptions::matrix_path` must point at a real NCBI-format file
+  (RepeatMasker's `Matrices/ncbi/nt/`). Constructing the engine with one set and
+  not the other is an error rather than a fallback. rmblastn also requires a
+  bare filename, resolved through `BLASTMAT`, which the engine sets from that
+  file's parent directory.
+- **`makeblastdb` comes from `rmblastn`'s own directory**, not from `PATH`. One
+  machine can carry several BLAST+ installs (here `/usr/local/rmblast/bin` is
+  2.17.1 while `/usr/bin` is 2.12.0), and indexing with one version then
+  searching with another corrupts silently instead of failing.
+
+`tests/live.rs` covers what the unit tests cannot: flag construction, the
+`makeblastdb` step, and whether the tabular output asked for is the output that
+comes back. It skips itself when no binary is installed.
+
+## dfam-stk-io
+
+Stockholm 1.0 — Dfam's seed-alignment format — together with the conversion to
+and from `aln_core::msa::MultiAlign`. Both halves are in one crate so a second
+tool cannot reimplement the bridge and drift away from this one.
+
+`StkRecord` is the format itself: `#=GF` file annotation, the `#=GC RF`
+reference line, sequences interleaved across multiple blocks, `//` terminators,
+and a streaming `iter_records` so a multi-record file need not be held in memory
+at once. `msa::read_select` pulls a single record by 1-based number or by its
+`#=GF ID`.
+
+Identifiers go through [Smitten](https://github.com/Dfam-consortium/Smitten)
+rather than a local regex, so recursive ranges normalise the way they do
+everywhere else in the toolchain; rows whose names do not parse, bare consensus
+labels among them, are still stored without coordinates. Smitten is
+pinned to tag `1.0.2`: an untagged git dependency resolves to whatever the
+default branch holds at fetch time, so two clones of the same dfam-lib tag would
+otherwise build different code.
+
+Four gap characters are read — `-`, `.`, `_`, `~` — and `.` is written.
+
+## Reading what other tools wrote
+
+Two readers sit in `aln-core` because the alternative was a third and a fourth
+copy of each.
+
+**`twobit`** — random-access UCSC `.2bit`. Consolidated from three
+implementations (dfam-curator, RepeatAfterMe, this crate); the one kept is
+RepeatAfterMe's, which rejects inverted ranges and short-circuits empty ones
+where the others underflow `end - start` on `u64` and panic in
+`Vec::with_capacity`. The index is built on open, and `fetch` reads only the
+packed bytes covering the request via `pread`, so the reader is `Send + Sync`
+and `fetch` takes `&self`. It returns uppercase `ACGTN`; mask blocks are
+ignored, matching the C loader's unconditional `toUpperN`. Both endiannesses,
+versions 0 and 1, Unix only.
+
+**`crossmatch`** — a reader for the `.align` files `fmt::to_crossmatch` has been
+able to write all along. The parser lived in `dfam-curator`, so anything else
+that wanted to read RepeatMasker alignment output had to depend on a curation
+tool to get at it.
 
 ## Output formats
 
@@ -331,9 +486,93 @@ it is preserved; a test asserts the two encodings stay mirror images.
 **PSL is not implemented** — RepeatMasker declares the constant but
 `toStringFormatted` croaks on it, so there is nothing to port.
 
-## autocons
+## Consensus calling
 
-The first tool on the stack, a port of `acons/src/autocons.cpp`.
+`aln_core::consensus` is the Dfam caller — Perl `MultAln.pm::
+buildConsensusFromArray` by way of the verified Rust in `dfam-curator`. Public
+names match `dfam_curator::consensus` so that migration is a delete-and-re-export.
+It is the default in `acons`/`autocons`; the original GIRI caller is `--orig`
+there, and is described below.
+
+Two passes: per-column argmax over all 18 symbols (gap included, `N` preferred on
+ties), then CpG restoration, which compares the called dinucleotide against a
+hypothetical `CG` under a deamination model and overwrites both positions if `CG`
+wins.
+
+A caution for anyone writing tests here: because `C` and `G` carry the highest
+self-scores in the matrix, **a balanced mix of `TG` and `CA` already calls `CG`
+from the per-column pass alone** — such a dataset proves nothing about
+restoration. `deaminated_cpg_is_restored` uses a skewed set where the plain call
+gives `TG` and only the model recovers `CG`; `a_balanced_tg_ca_mix_needs_no_
+restoration` pins the trap.
+
+### The GIRI caller
+
+`aln_core::giri` is the other one: `MultipleAlignment::getConsensus()` from
+`giri_cpp_lib`, by way of the verified Rust in `dfam-curator`. It is a different
+caller rather than a variant of the same one:
+
+- **12 symbols** (`A R G C Y T K M S W N X`) against the Dfam caller's 18 — it
+  cannot emit `B/D/H/V/Z`.
+- **Gap weights** `-5` base-vs-gap and `+2` gap-vs-gap, against `-6`/`+3`, and
+  an `N` penalty of `-5` against a softened `-2`.
+- **A minimum-coverage gate** (`acons --min`) with no Dfam equivalent.
+- **Ties resolve the other way.** Candidates are scanned in reverse with a
+  strict `>`, so gap beats `X` beats `N` beats … beats `A`. The Dfam caller
+  prefers `N`.
+- **CpG restoration is a separate pass**, applied only when a species is given
+  (`--mam`), under a probabilistic model rather than the Dfam caller's
+  deterministic bonus.
+
+`giri::fixed` holds a corrected restoration: GIRI's `firstBase` lookup table is
+inert, and its `CG` mask neither skips gaps nor stops at the motif end. It is
+kept beside the faithful version rather than folded into it, because reproducing
+`acons` is what the faithful version is for.
+
+## Consumers
+
+This repository is libraries only. The tools live in their own repositories and
+depend on it:
+
+- **`dfam-curator`** — `autocons`, `cons-core` (the consensus pipeline `autocons`
+  and `te-composer` share), and the curation tooling around them.
+- **`RepeatAfterMe`** — `ram-core`, which contributed the 2bit reader now in
+  `aln-core`, and `ram-cli`.
+
+Both depend on dfam-lib **by git tag**, never by path:
+
+```toml
+[workspace.dependencies]
+aln-core = { git = "https://github.com/Dfam-consortium/dfam-lib", tag = "0.0.3" }
+```
+
+A path dependency ties a consumer to one directory layout on one machine: when
+dfam-lib was relocated, every crate in dfam-curator stopped building until
+someone edited the paths. A tag resolves the same way from any clone.
+
+For work against a live checkout, a commented-out `[patch]` at the foot of the
+consumer's root manifest substitutes the working copy for the tag without any
+committed manifest changing:
+
+```toml
+#[patch."https://github.com/Dfam-consortium/dfam-lib"]
+#aln-core    = { path = "../dfam-lib-project/dfam-lib/aln-core" }
+#dfam-stk-io = { path = "../dfam-lib-project/dfam-lib/dfam-stk-io" }
+```
+
+`[patch]` rewrites the *source*, not one dependency edge, so it applies to the
+whole graph at once: transitive users of dfam-lib follow the working copy too,
+and the build stays on a single copy of `aln-core`. That property is why they
+must not path-depend on dfam-lib themselves: a path dependency escapes the
+patch, and two `aln-core`s in one graph give you types that will not
+interconvert. Uncomment to work, comment out again and let `Cargo.lock`
+re-resolve before committing.
+
+### autocons
+
+A faithful port of `acons/src/autocons.cpp`, and the heaviest user of this
+stack. It lives in `dfam-curator` now, so what is left here is what it asks of
+the library.
 
 ```sh
 autocons family.fa --format fasta -n 3 --aln out
@@ -359,7 +598,7 @@ Reference selection skips self-comparison **by index**. The C++ skips by pointer
 identity, which silently fails to skip a duplicated sequence held as a distinct
 object.
 
-### Parallelism, and how to size a run
+#### Parallelism, and how to size a run
 
 Rayon throughout; no MPI. The C++'s three modes (`process_locally`,
 `process_with_pthreads`, `process_with_mpi`) collapse to one, because rayon
@@ -376,66 +615,25 @@ The axis matters, though, and follows the C++ default (`process_with_pthreads`):
   byte-identical output.
 - **Phase 2** — only one reference in flight, so the inner loop is parallel.
 
-**Peak memory scales with thread count, not input size.** parasail's traceback
-kernels allocate an `m × n` matrix per in-flight alignment; each worker holds one.
-Measured:
-
-| input | threads | wall | peak RSS |
-|---|---|---|---|
-| 120 × 2.5 kb | 1 | 73.3 s | 41 MB |
-| | 4 | 20.0 s | 93 MB |
-| | 8 | 10.7 s | 158 MB |
-| | 16 | 10.9 s | 248 MB |
-| 20 × 10 kb | 4 | 55.8 s | 1.56 GB |
-| | 16 | 36.3 s | 5.40 GB |
-
-Two things to take from that. Throughput **stops improving past ~8 threads** on
-2.5 kb input — the work is memory-bandwidth-bound well before it is core-bound,
-and more workers only add allocation churn. And at 10 kb the cost is roughly
-**350 MB per worker**, quadratic in sequence length, so long families need the
-thread count chosen deliberately. `autocons` estimates this at startup and warns
-with a concrete `--threads` suggestion when it would exceed half of
-`MemAvailable`.
-
 If phase 1 ever becomes the bottleneck on large inputs, the fix is not more
 threads: it is to replace its `O(n²)` full dynamic programming with a seeded
 search — which is what `aln-rmblast` exists to provide.
 
-### End-to-end validation
+#### End-to-end validation
 
-`autocons/tests/alu_recovery.rs` takes the real 311 bp AluY consensus, diverges
-it into 20 copies at 15% substitution and 3% indel, buries each in random flanks
-so hits are embedded rather than edge-aligned, and requires `autocons` to get it
-back. It recovers AluY at **100% identity over 310 of 311 bases** — and still
-clears 95% at 22% divergence.
+`cons-core/tests/alu_recovery.rs`, in dfam-curator, takes the real 311 bp AluY
+consensus, diverges it into 20 copies at 15% substitution and 3% indel, buries
+each in random flanks so hits are embedded rather than edge-aligned, and requires
+`autocons` to get it back. It recovers AluY at **100% identity over 310 of 311
+bases** — and still clears 95% at 22% divergence.
 
 That single test exercises the whole stack: FASTA I/O, parasail striped SIMD
-alignment, MSA assembly under `GrowReference`, the Dfam consensus caller with CpG
+alignment, MSA assembly under `GrowPerSlot`, the Dfam consensus caller with CpG
 restoration, and refinement to convergence.
 
 Note the emitted consensus runs somewhat longer than the true one (361 vs 311 bp
 above) because local alignment picks up flanking sequence at the edges. The C++
 behaves the same way; trim as needed.
-
-## Consensus calling
-
-`aln_core::consensus` is the Dfam caller — Perl `MultAln.pm::
-buildConsensusFromArray` by way of the verified Rust in `dfam-curator`. Public
-names match `dfam_curator::consensus` so that migration is a delete-and-re-export.
-It is the default in `acons`/`autocons`; the original GIRI caller is `--orig`
-there and is not yet ported.
-
-Two passes: per-column argmax over all 18 symbols (gap included, `N` preferred on
-ties), then CpG restoration, which compares the called dinucleotide against a
-hypothetical `CG` under a deamination model and overwrites both positions if `CG`
-wins.
-
-A caution for anyone writing tests here: because `C` and `G` carry the highest
-self-scores in the matrix, **a balanced mix of `TG` and `CA` already calls `CG`
-from the per-column pass alone** — such a dataset proves nothing about
-restoration. `deaminated_cpg_is_restored` uses a skewed set where the plain call
-gives `TG` and only the model recovers `CG`; `a_balanced_tg_ca_mix_needs_no_
-restoration` pins the trap.
 
 ## Licensing
 
@@ -482,6 +680,10 @@ on Apple Silicon `build.rs` fails with a message naming the feature to turn off.
   equivalent but will not be bit-identical to GIRI's modified variant.
 - `ProcessRepeats`' adaptive-width `.out` table (a two-pass column-width
   calculation over a whole file, not a per-record writer).
-- `dfam-curator` migration onto `aln-core` (planned for a later session).
+- The rest of the `dfam-curator` migration. Its consensus caller, MSA types,
+  Stockholm reader and 2bit reader now come from here — `io/twobit.rs` is a
+  re-export and nothing else. What is left is `blast.rs`, a second rmblastn
+  wrapper that predates `aln-rmblastn` and does the same work behind a different
+  interface.
 - **Open, deferred:** the `rmblast-lib` left-extension underflow above — decide
   whether to patch `rmblast-port` and drop the two `#[ignore]` attributes.

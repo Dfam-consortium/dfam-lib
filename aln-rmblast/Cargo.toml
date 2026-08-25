@@ -34,7 +34,7 @@ anyhow = "1"
 # Dropping it via `default-features = false` costs the last-resort Gumbel
 # parameter fit in the E-value statistics hierarchy; note the dependency line
 # below does not currently set it.
-rmblast-lib = { git = "https://github.com/Dfam-consortium/RMBlast.git", tag = "3.0.2" }
+rmblast-lib = { git = "https://github.com/Dfam-consortium/RMBlast.git", tag = "3.0.5" }
 
 # To develop against a local rmblast-port checkout, replace the line above with
 # the path below.  A `[patch]` section does NOT work here: cargo loads the
