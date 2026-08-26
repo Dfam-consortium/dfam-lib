@@ -13,6 +13,7 @@ pub mod msa;
 /// row with parsed coordinates), and `iter_records` (streaming iterator).
 pub use smitten::IDVersion;
 
+use aln_coord::Span;
 use smitten::Identifier;
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -44,10 +45,10 @@ pub struct SeqRow {
     /// Chromosome / scaffold name.  `None` when the identifier cannot be
     /// parsed (e.g. bare consensus labels).
     pub sequence_id: Option<String>,
-    /// 0-based start coordinate from the Smitten identifier, if present.
-    pub seq_start: Option<u64>,
-    /// 0-based end coordinate from the Smitten identifier, if present.
-    pub seq_end: Option<u64>,
+    /// Forward-strand coordinates of the outermost range in the Smitten
+    /// identifier, if present. The identifier is written 1-based fully
+    /// closed; this is the same bases in the house convention.
+    pub span: Option<Span>,
     /// Strand orientation (`'+'` or `'-'`), if present.
     pub orient: Option<char>,
     /// Smitten identifier version inferred during parsing.
@@ -71,8 +72,10 @@ impl SeqRow {
                 original_id: name.to_string(),
                 assembly_id: norm.assembly_id,
                 sequence_id: Some(norm.sequence_id),
-                seq_start: norm.ranges.first().map(|r| r.start as u64),
-                seq_end: norm.ranges.first().map(|r| r.end as u64),
+                span: norm
+                    .ranges
+                    .first()
+                    .and_then(|r| Span::from_1b_closed(r.start as u64, r.end as u64).ok()),
                 orient: norm.ranges.first().map(|r| r.orientation),
                 inferred_version: Some(version),
                 aligned_seq: aligned.to_string(),
@@ -81,8 +84,7 @@ impl SeqRow {
                 original_id: name.to_string(),
                 assembly_id: None,
                 sequence_id: None,
-                seq_start: None,
-                seq_end: None,
+                span: None,
                 orient: None,
                 inferred_version: None,
                 aligned_seq: aligned.to_string(),
@@ -98,8 +100,7 @@ impl SeqRow {
             original_id: name.into(),
             assembly_id: None,
             sequence_id: None,
-            seq_start: None,
-            seq_end: None,
+            span: None,
             orient: None,
             inferred_version: None,
             aligned_seq: aligned.into(),
@@ -301,8 +302,8 @@ impl<R: BufRead> Iterator for StkRecordIter<R> {
                 continue;
             }
 
-            if trimmed.starts_with("#=GF") {
-                let rest = trimmed[4..].trim_start();
+            if let Some(rest) = trimmed.strip_prefix("#=GF") {
+                let rest = rest.trim_start();
                 let mut it = rest.splitn(2, char::is_whitespace);
                 let tag = it.next().unwrap_or("").to_string();
                 let value = it.next().map(|s| s.trim().to_string()).unwrap_or_default();
@@ -312,8 +313,8 @@ impl<R: BufRead> Iterator for StkRecordIter<R> {
                 continue;
             }
 
-            if trimmed.starts_with("#=GC") {
-                let rest = trimmed[4..].trim_start();
+            if let Some(rest) = trimmed.strip_prefix("#=GC") {
+                let rest = rest.trim_start();
                 let mut it = rest.splitn(2, char::is_whitespace);
                 let tag = it.next().unwrap_or("").to_string();
                 let value = it.next().map(|s| s.trim().to_string()).unwrap_or_default();
@@ -435,16 +436,14 @@ s1          AC
 
     #[test]
     fn label_with_id() {
-        let mut r = StkRecord::default();
-        r.record_num = 3;
+        let mut r = StkRecord { record_num: 3, ..Default::default() };
         r.gf.push(("ID".to_string(), "MyFam".to_string()));
         assert_eq!(r.label(), "record:3/MyFam");
     }
 
     #[test]
     fn label_without_id() {
-        let mut r = StkRecord::default();
-        r.record_num = 7;
+        let r = StkRecord { record_num: 7, ..Default::default() };
         assert_eq!(r.label(), "record:7");
     }
 

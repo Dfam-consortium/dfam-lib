@@ -1,7 +1,7 @@
 //! Using rmblast where a [`PairwiseAligner`] is expected.
 //!
 //! `autocons` is generic over [`PairwiseAligner`] — two sequences in, at most
-//! one alignment out. rmblast is a [`SearchEngine`](aln_engine::SearchEngine):
+//! one alignment out. rmblast is a [`SearchEngine`]:
 //! it seeds, extends, and returns *many* HSPs per pair, on both strands. This
 //! adapter bridges the two by taking the **single best-scoring HSP** for each
 //! (subject, query) pair.

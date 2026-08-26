@@ -3,6 +3,8 @@ name = "aln-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "Aligner and search-engine traits plus parallel drivers for the Dfam/GIRI alignment stack"
 
 [dependencies]

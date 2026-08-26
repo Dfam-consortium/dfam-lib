@@ -8,12 +8,13 @@
 //! emptied alignment. The *generator* and the self-consistency check are what
 //! generalise, and they need no second implementation to be useful.
 //!
-//! The invariant that found the bug: a row's `start`/`end` must be the first and
+//! The invariant that found the bug: a row's `col_start`/`col_end` must be the first and
 //! last non-padding column of its own `seq`. Any operation that moves columns
 //! has to re-establish it.
 
 use aln_core::msa::{MultiAlign, SequenceRow};
 use aln_core::Strand;
+use aln_coord::Span;
 
 /// Deterministic xorshift so a failure can be replayed from its seed.
 struct Rng(u64);
@@ -60,8 +61,8 @@ fn make(rng: &mut Rng) -> MultiAlign {
             }
         }
         let mut row = SequenceRow::new(format!("row{r}"), seq);
-        row.seq_start = 1 + rng.below(500) as u64;
-        row.seq_end = row.seq_start + 50;
+        let s0 = rng.below(500) as u64;
+        row.span = Some(Span::new(s0, s0 + 50).unwrap());
         row.orient = if r > 0 && rng.below(4) == 0 { Strand::Minus } else { Strand::Plus };
         rows.push(row);
     }
@@ -69,7 +70,7 @@ fn make(rng: &mut Rng) -> MultiAlign {
     MultiAlign::from_sequences(first.clone(), rest.to_vec()).expect("generated a valid alignment")
 }
 
-/// `start`/`end` must describe the row's own `seq`, and every row must be as
+/// `col_start`/`col_end` must describe the row's own `seq`, and every row must be as
 /// wide as the alignment.
 fn check(m: &MultiAlign, op: &str, seed: u64) {
     let w = m.width();
@@ -81,14 +82,16 @@ fn check(m: &MultiAlign, op: &str, seed: u64) {
             row.seq.len()
         );
         let pad = |b: u8| matches!(b, b' ' | b'<' | b'>');
-        let want_s = row.seq.iter().position(|&b| !pad(b)).unwrap_or(0);
-        let want_e = row.seq.iter().rposition(|&b| !pad(b)).unwrap_or(0);
+        let (want_s, want_e) = match row.seq.iter().position(|&b| !pad(b)) {
+            Some(s) => (s, row.seq.iter().rposition(|&b| !pad(b)).unwrap() + 1),
+            None => (0, 0),
+        };
         assert_eq!(
-            (row.start, row.end),
+            (row.col_start, row.col_end),
             (want_s, want_e),
-            "{op} (seed {seed}): row {i} bounds {}/{} contradict its own seq {:?}",
-            row.start,
-            row.end,
+            "{op} (seed {seed}): row {i} bounds {}..{} contradict its own seq {:?}",
+            row.col_start,
+            row.col_end,
             String::from_utf8_lossy(&row.seq)
         );
     }
@@ -145,7 +148,7 @@ fn reverse_complement_is_an_involution() {
         for (x, y) in before.sequences.iter().zip(&after.sequences) {
             assert_eq!(x.seq, y.seq, "double reverse-complement changed the sequence (seed {seed})");
             assert_eq!(x.orient, y.orient, "orientation not restored (seed {seed})");
-            assert_eq!((x.start, x.end), (y.start, y.end), "bounds not restored (seed {seed})");
+            assert_eq!((x.col_start, x.col_end), (y.col_start, y.col_end), "bounds not restored (seed {seed})");
         }
     }
 }

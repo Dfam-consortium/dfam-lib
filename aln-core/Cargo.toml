@@ -3,6 +3,8 @@ name = "aln-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "Core sequence, scoring-matrix, alignment and MSA types for the Dfam/GIRI alignment stack"
 
 [dependencies]

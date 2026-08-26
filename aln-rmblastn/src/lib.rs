@@ -1,6 +1,6 @@
 //! [`SearchEngine`] backed by the **external `rmblastn` binary**.
 //!
-//! The sibling to [`aln_rmblast`], which is an in-process port of the same
+//! The sibling to `aln-rmblast`, which is an in-process port of the same
 //! algorithm. Both exist on purpose:
 //!
 //! * **This one** is what RepeatMasker actually runs, so its output is the
@@ -299,7 +299,7 @@ impl SearchEngine for RmblastnEngine {
     }
 }
 
-/// Parse `-outfmt 6` rows in [`OUTFMT`] order into [`Alignment`]s.
+/// Parse `-outfmt 6` rows in `OUTFMT` order into [`Alignment`]s.
 ///
 /// BLAST reports 1-based closed coordinates and, on a minus-strand hit, gives
 /// the subject range descending. This crate's convention is 0-based half-open

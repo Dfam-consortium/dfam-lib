@@ -12,6 +12,7 @@ use std::path::Path;
 
 use aln_core::msa::{SequenceRow, MultiAlign};
 use aln_core::Strand;
+use aln_coord::Span;
 
 /// Read a Stockholm file and return the first record as a MultiAlign.
 ///
@@ -70,12 +71,15 @@ pub fn multialign_from_record(record: &crate::StkRecord) -> io::Result<MultiAlig
 
 /// Parse genomic coordinates from a RepeatModeler-style sequence identifier.
 ///
-/// Recognises `prefix:start-end` (e.g. `gi|57:120437225-120436960`).
-/// When `raw_start > raw_end` the sequence is reverse-strand; seq_start/end are
-/// normalised so that seq_start ≤ seq_end regardless of orientation.
-/// Returns the display name (prefix only), seq_start, seq_end, and orientation.
-/// Falls back to the original name with start=end=0, Forward for unparseable IDs.
-fn parse_seq_name_coords(name: &str) -> (String, u64, u64, Strand) {
+/// Recognises `prefix:start-end` (e.g. `gi|57:120437225-120436960`). The
+/// coordinates in the name are 1-based fully closed; the returned span is the
+/// forward-strand interval in the house convention. When `raw_start > raw_end`
+/// the sequence is reverse-strand, and the span is the same bases ascending.
+/// Returns the display name (prefix only), the span, and the orientation.
+///
+/// An identifier without a recognisable suffix, or whose coordinates include a
+/// 0 (impossible in a 1-based name), keeps its full name and gets no span.
+pub fn parse_seq_name_coords(name: &str) -> (String, Option<Span>, Strand) {
     if let Some(colon) = name.rfind(':') {
         let prefix = &name[..colon];
         let coords = &name[colon + 1..];
@@ -85,7 +89,7 @@ fn parse_seq_name_coords(name: &str) -> (String, u64, u64, Strand) {
             // When present, coords are always low-to-high so we read orientation
             // from the suffix.  Without the suffix we fall back to the old
             // RepeatModeler convention where start > end signals reverse strand.
-            let e = e_raw.trim_end_matches(|c: char| c == '+' || c == '-')
+            let e = e_raw.trim_end_matches(['+', '-'])
                          .trim_end_matches('_');
             if let (Ok(a), Ok(b)) = (s.parse::<u64>(), e.parse::<u64>()) {
                 let orient = if e_raw.ends_with("_-") {
@@ -97,11 +101,13 @@ fn parse_seq_name_coords(name: &str) -> (String, u64, u64, Strand) {
                 } else {
                     Strand::Plus
                 };
-                return (prefix.to_string(), a.min(b), a.max(b), orient);
+                if let Ok(span) = Span::from_1b_closed(a.min(b), a.max(b)) {
+                    return (prefix.to_string(), Some(span), orient);
+                }
             }
         }
     }
-    (name.to_string(), 0, 0, Strand::Plus)
+    (name.to_string(), None, Strand::Plus)
 }
 
 /// Build a `SequenceRow` from an original Stockholm sequence name + normalised bytes.
@@ -109,11 +115,10 @@ fn parse_seq_name_coords(name: &str) -> (String, u64, u64, Strand) {
 /// Coordinates and strand are parsed from the name when it matches the
 /// `prefix:start-end` pattern used by RepeatModeler.
 fn make_instance_row(orig_name: String, seq: Vec<u8>) -> SequenceRow {
-    let (display_name, seq_start, seq_end, orient) = parse_seq_name_coords(&orig_name);
+    let (display_name, span, orient) = parse_seq_name_coords(&orig_name);
     let mut row = SequenceRow::new(display_name, seq);
-    row.seq_start = seq_start;
-    row.seq_end   = seq_end;
-    row.orient    = orient;
+    row.span = span;
+    row.orient = orient;
     row
 }
 
@@ -212,7 +217,8 @@ fn parse_record<R: BufRead>(reader: R) -> io::Result<MultiAlign> {
 /// - Single uninterleaved block (no column wrapping).
 /// - All gap characters (`-`) and space padding are replaced with `.`.
 /// - Consensus written as `#=GC RF` before instance rows.
-/// - Instance names get a `:[seq_start]-[seq_end]_[orient]` suffix.
+/// - Instance names get a `:[start]-[end]_[orient]` suffix, 1-based fully
+///   closed. Rows without coordinates are written as the bare name.
 /// - When `include_template` is true, a Dfam-style placeholder header is
 ///   prepended (matches Perl's `includeTemplate => 1` default).
 pub fn write(
@@ -254,16 +260,18 @@ pub fn write(
 
     writeln!(out, "#=GF SQ {}", msa.num_instances())?;
 
-    // Build per-instance labels: name:seq_start-seq_end_orient (idFormat=2).
+    // Build per-instance labels: name:start-end_orient (idFormat=2). An empty
+    // span has no 1-based closed form and is written as the bare name too.
     let labels: Vec<String> = msa.sequences[1..].iter().map(|s| {
-        if s.seq_start == 0 && s.seq_end == 0 {
-            s.name.clone()
-        } else {
-            let orient = match s.orient {
-                Strand::Plus => "+",
-                Strand::Minus => "-",
-            };
-            format!("{}:{}-{}_{}", s.name, s.seq_start, s.seq_end, orient)
+        match s.span.and_then(|sp| sp.as_1b_closed()) {
+            None => s.name.clone(),
+            Some((start, end)) => {
+                let orient = match s.orient {
+                    Strand::Plus => "+",
+                    Strand::Minus => "-",
+                };
+                format!("{}:{}-{}_{}", s.name, start, end, orient)
+            }
         }
     }).collect();
 
@@ -326,6 +334,57 @@ seq2       AC-T
         assert!(s.contains("# STOCKHOLM 1.0"));
         assert!(s.contains("#=GC RF"));
         assert!(s.contains("//"));
+    }
+
+    /// The name suffix is 1-based fully closed; the row's span is not.
+    #[test]
+    fn name_coordinates_are_converted_to_half_open() {
+        use aln_coord::calibration::{check_all, Case};
+
+        let (name, span, orient) = parse_seq_name_coords("chr1:101-200_+");
+        assert_eq!((name.as_str(), orient), ("chr1", Strand::Plus));
+        let plus = span.unwrap();
+
+        // RepeatModeler's old form: descending coordinates mean minus strand.
+        let (name, span, orient) = parse_seq_name_coords("gi|57:120437225-120436960");
+        assert_eq!((name.as_str(), orient), ("gi|57", Strand::Minus));
+        let minus = span.unwrap();
+
+        check_all(&[
+            Case {
+                label: "chr1:101-200_+",
+                span: plus,
+                expect_0b_half_open: (100, 200),
+                expect_1b_closed: Some((101, 200)),
+                expect_len: 100,
+            },
+            Case {
+                label: "gi|57:120437225-120436960",
+                span: minus,
+                expect_0b_half_open: (120436959, 120437225),
+                expect_1b_closed: Some((120436960, 120437225)),
+                expect_len: 266,
+            },
+        ]);
+
+        assert_eq!(parse_seq_name_coords("seq1"), ("seq1".to_string(), None, Strand::Plus));
+        // 0 cannot occur in a 1-based name, so this is not a coordinate suffix.
+        assert_eq!(
+            parse_seq_name_coords("chr1:0-100"),
+            ("chr1:0-100".to_string(), None, Strand::Plus)
+        );
+    }
+
+    #[test]
+    fn written_labels_are_one_based_closed() {
+        let stk = "# STOCKHOLM 1.0\n#=GF ID Fam\nchr1:101-200_+  ACGT\nchr2:300-201  AC-T\nbare  ACGT\n#=GC RF ACGT\n//\n";
+        let msa = parse_record(Cursor::new(stk)).unwrap();
+        let mut out = Vec::new();
+        write(&msa, &mut out, Some("Fam"), None, false).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("\nchr1:101-200_+ "), "{s}");
+        assert!(s.contains("\nchr2:201-300_- "), "{s}");
+        assert!(s.contains("\nbare "), "{s}");
     }
 
     #[test]

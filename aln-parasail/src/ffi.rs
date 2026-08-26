@@ -7,7 +7,7 @@
 //! Only the striped **traceback** kernels are vendored.  parasail's own
 //! `_sat` wrappers and cpuid dispatcher are not — saturation fallback and ISA
 //! selection happen in Rust (see [`crate::isa`] and
-//! [`ParasailAligner::align_prepared`](crate::ParasailAligner::align_prepared)).
+//! `ParasailAligner::align_prepared`).
 
 #![allow(non_camel_case_types)]
 

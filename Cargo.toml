@@ -12,10 +12,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 license = "CC0-1.0"
 repository = "https://github.com/Dfam-consortium/dfam-lib"
+# The oldest toolchain this workspace is tested on.
+rust-version = "1.86"
 
 [workspace.dependencies]
 aln-coord = { path = "aln-coord" }

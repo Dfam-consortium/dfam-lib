@@ -23,6 +23,7 @@
 
 use crate::error::{Error, Result};
 use crate::seq::{self, Strand, GAP, PAD};
+use aln_coord::Span;
 
 /// Alias kept so `dfam-curator` code moves over without edits.
 pub use crate::seq::Strand as Orientation;
@@ -42,15 +43,16 @@ pub struct SequenceRow {
     /// Gapped bytes; length equals the alignment width.
     pub seq: Vec<u8>,
 
-    /// 0-based first non-padding column.
-    pub start: usize,
-    /// 0-based last non-padding column, inclusive.
-    pub end: usize,
+    /// First non-padding column, 0-based.
+    pub col_start: usize,
+    /// One past the last non-padding column: `col_start..col_end` indexes the
+    /// occupied part of `seq`. Both are 0 for a row of nothing but padding.
+    pub col_end: usize,
 
-    /// 1-based fully-closed start in the original ungapped source sequence.
-    pub seq_start: u64,
-    /// 1-based fully-closed end in the original ungapped source sequence.
-    pub seq_end: u64,
+    /// Where the row's residues sit in the original ungapped source sequence,
+    /// on the forward strand; `orient` says which strand was aligned. `None`
+    /// when the identifier carried no coordinates.
+    pub span: Option<Span>,
 
     pub orient: Strand,
 
@@ -74,18 +76,26 @@ pub struct SequenceRow {
     pub src_div: Option<f64>,
 }
 
+/// Half-open column range occupied by non-padding bytes; `(0, 0)` when the
+/// row is all padding.
+fn col_bounds(seq: &[u8]) -> (usize, usize) {
+    match seq.iter().position(|&b| !seq::is_pad(b)) {
+        Some(s) => (s, seq.iter().rposition(|&b| !seq::is_pad(b)).unwrap() + 1),
+        None => (0, 0),
+    }
+}
+
 impl SequenceRow {
-    /// Build from a name and a gapped row, deriving `start`/`end` from padding.
+    /// Build from a name and a gapped row, deriving the column bounds from
+    /// padding.
     pub fn new(name: impl Into<String>, seq: Vec<u8>) -> Self {
-        let start = seq.iter().position(|&b| !seq::is_pad(b)).unwrap_or(0);
-        let end = seq.iter().rposition(|&b| !seq::is_pad(b)).unwrap_or(0);
+        let (col_start, col_end) = col_bounds(&seq);
         SequenceRow {
             name: name.into(),
             seq,
-            start,
-            end,
-            seq_start: 0,
-            seq_end: 0,
+            col_start,
+            col_end,
+            span: None,
             orient: Strand::Plus,
             lf_seq: None,
             rf_seq: None,
@@ -103,10 +113,11 @@ impl SequenceRow {
         seq::ungapped_len(&self.seq)
     }
 
-    /// Recompute `start`/`end` after the row has been edited.
+    /// Recompute `col_start`/`col_end` after the row has been edited.
     pub fn refresh_bounds(&mut self) {
-        self.start = self.seq.iter().position(|&b| !seq::is_pad(b)).unwrap_or(0);
-        self.end = self.seq.iter().rposition(|&b| !seq::is_pad(b)).unwrap_or(0);
+        let (s, e) = col_bounds(&self.seq);
+        self.col_start = s;
+        self.col_end = e;
     }
 }
 
@@ -372,9 +383,8 @@ pub struct MsaMember<'a> {
     pub gapped_reference: &'a [u8],
     /// 0-based offset into the ungapped reference where this alignment starts.
     pub ref_start: usize,
-    /// 1-based fully-closed source coordinates of the instance.
-    pub seq_start: u64,
-    pub seq_end: u64,
+    /// Forward-strand source coordinates of the instance, if known.
+    pub span: Option<Span>,
     pub orient: Strand,
 }
 
@@ -514,8 +524,7 @@ fn assemble_incremental(
         .zip(members)
         .map(|((name, seq), m)| {
             let mut r = SequenceRow::new(name, seq);
-            r.seq_start = m.seq_start;
-            r.seq_end = m.seq_end;
+            r.span = m.span;
             r.orient = m.orient;
             r
         })
@@ -643,8 +652,7 @@ fn assemble_grow(
 
 fn finish_row(m: &MsaMember<'_>, row: Vec<u8>) -> SequenceRow {
     let mut r = SequenceRow::new(m.name, row);
-    r.seq_start = m.seq_start;
-    r.seq_end = m.seq_end;
+    r.span = m.span;
     r.orient = m.orient;
     r
 }
@@ -709,8 +717,7 @@ mod tests {
             gapped_query: q,
             gapped_reference: r,
             ref_start,
-            seq_start: 1,
-            seq_end: seq::ungapped_len(q) as u64,
+            span: Some(Span::new(0, seq::ungapped_len(q) as u64).unwrap()),
             orient: Strand::Plus,
         }
     }
@@ -769,8 +776,8 @@ mod tests {
         let msa = assemble_msa(reference, "ref", &[m], InsertionPolicy::GrowPerSlot).unwrap();
         let row = &msa.instance(0).unwrap().seq;
         assert_eq!(row, b" CG  ");
-        assert_eq!(msa.instance(0).unwrap().start, 1);
-        assert_eq!(msa.instance(0).unwrap().end, 2);
+        assert_eq!(msa.instance(0).unwrap().col_start, 1);
+        assert_eq!(msa.instance(0).unwrap().col_end, 3);
     }
 
     #[test]
@@ -813,8 +820,7 @@ mod tests {
             gapped_query: b"ACG",
             gapped_reference: b"ACGT",
             ref_start: 0,
-            seq_start: 1,
-            seq_end: 3,
+            span: Some(Span::new(0, 3).unwrap()),
             orient: Strand::Plus,
         };
         assert!(assemble_msa(reference, "ref", &[m], InsertionPolicy::Drop).is_err());
@@ -948,8 +954,7 @@ mod tests {
                 gapped_query: q,
                 gapped_reference: r,
                 ref_start: *start,
-                seq_start: 1,
-                seq_end: seq::ungapped_len(q) as u64,
+                span: Some(Span::new(0, seq::ungapped_len(q) as u64).unwrap()),
                 orient: Strand::Plus,
             })
             .collect();

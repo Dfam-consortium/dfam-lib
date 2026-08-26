@@ -1,7 +1,10 @@
 [package]
 name = "dfam-stk-io"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "Stockholm 1.0 parser and types for the Dfam toolchain"
 
 [lib]
@@ -9,7 +12,8 @@ name = "dfam_stk_io"
 path = "src/lib.rs"
 
 [dependencies]
-aln-core = { path = "../aln-core" }
+aln-core.workspace = true
+aln-coord.workspace = true
 # Pinned: without a tag this resolves to whatever the default branch holds
 # at fetch time, so two clones of the same dfam-lib tag can build different
 # code.

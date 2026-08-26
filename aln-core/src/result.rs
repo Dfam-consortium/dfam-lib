@@ -7,7 +7,7 @@
 //! `SearchResult.pm` object, minus the search-engine plumbing.
 //!
 //! Nothing here recomputes anything. Build one from an [`Alignment`] and the
-//! [`RescoreResult`](crate::stats::RescoreResult) you already have.
+//! [`RescoreResult`] you already have.
 
 use crate::align::Alignment;
 use crate::stats::RescoreResult;

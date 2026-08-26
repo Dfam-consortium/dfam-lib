@@ -73,12 +73,12 @@ fn rmblast_hsp_needs_no_conversion() {
     }]);
 }
 
-/// The `(0, 0)` sentinel that Phase 1 removes, in both places it appears.
+/// The `(0, 0)` sentinel that `Option<Span>` replaced.
 ///
-/// `dfam-curator/src/io/clustal.rs:199` tests `seq_start == 0 && seq_end == 0`
-/// for "no coordinates", and `dfam-stk-io/src/msa.rs:104` returns `(0, 0)` for
-/// an unparseable name.  Under 1-based coordinates 0 is unreachable, so the
-/// sentinel works.  Under 0-based it is the first base of the sequence.
+/// Parsers used to return `(0, 0)` for a name without coordinates and writers
+/// tested for it.  Under 1-based coordinates 0 is unreachable, so the sentinel
+/// worked.  Under 0-based it is the first base of the sequence, which is why
+/// absence is now `None` and a 1-based 0 is a construction error.
 #[test]
 fn the_zero_sentinel_is_unrepresentable() {
     assert!(Span::from_1b_closed(0, 0).is_err());

@@ -3,6 +3,8 @@ name = "aln-parasail"
 version.workspace = true
 edition.workspace = true
 license = "BSD-3-Clause AND CC0-1.0"
+repository.workspace = true
+rust-version.workspace = true
 description = "parasail SIMD backend for the Dfam/GIRI alignment stack"
 
 [dependencies]

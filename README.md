@@ -2,8 +2,8 @@
 
 A Rust library to support tools used in the curation of transposable element
 sequences.  This library includes interfaces to pairwise alignment programs 
-(parasail/rmblast etc), datastructures for storing alignment data, file parsers
-/exporters, and general analysis functions.  Asside from a handful of new
+(parasail/rmblast etc), data structures for storing alignment data, file parsers
+/exporters, and general analysis functions.  Aside from a handful of new
 features, this library includes many existing concepts from the RepeatMasker, 
 RepeatModeler, Dfam and GIRI/Repbase projects.
 
@@ -21,6 +21,37 @@ dfam-lib/
 ├── docs/            notes too long to sit in a doc comment
 └── tools/           shell probes for the C++ binaries this stack replaces
 ```
+
+## Building
+
+```sh
+git clone https://github.com/Dfam-consortium/dfam-lib
+cd dfam-lib
+cargo test --workspace
+```
+
+What that needs on the machine:
+
+- **Rust 1.86 or newer.** `rust-version` in the root manifest is the oldest
+  toolchain the workspace is tested on; cargo refuses older ones with a clear
+  message rather than a page of errors.
+- **A C compiler.** `aln-parasail` compiles the vendored parasail kernels
+  with `-msse2`, `-msse4.1` and `-mavx2` and picks one at run time by `cpuid`,
+  so the compiler has to accept those flags (gcc and clang on x86-64 do).
+- **A C++ compiler.** `aln-rmblast` depends on `rmblast-lib`, whose default
+  `alp-fit` feature compiles the ALP sources vendored in the RMBlast
+  repository.
+- **Network access on the first build.** Two dependencies come from GitHub by
+  tag rather than from crates.io: `rmblast-lib` (RMBlast `3.0.6`) and
+  `smitten` (`1.0.2`). Cargo caches them; later builds are offline. This is
+  also why the crates here are not on crates.io: a published crate cannot
+  depend on a git repository.
+- **Optionally, an `rmblastn` binary on `PATH`.** `aln-rmblastn`'s live tests
+  run against it and skip with a message when it is absent. Nothing else
+  needs it.
+
+Nothing here has to be installed; consumers depend on the crates by git tag
+(see [Consumers](#consumers)).
 
 ## The workspace
 
@@ -62,11 +93,64 @@ Everything else follows from these. Each is documented at length in its module.
 
 | | rule | why it bites |
 |---|---|---|
-| **Coordinates** | 0-based, half-open, forward-strand, `start < end` on both sides | `rmblast-lib` is 0-based half-open; `dfam-curator`, RepeatMasker and BLAST tabular are 1-based closed. Conversion happens *only* at I/O boundaries (`Alignment::query_one_based`). |
+| **Coordinates** | 0-based, half-open, forward-strand, `start <= end`; a range is an `aln_coord::Span`, an absent range is `Option<Span>` | The file formats around us (Smitten identifiers, Stockholm, RepeatMasker `.out`, BLAST tabular) are 1-based closed, and parasail's accessors are 0-based closed. A bare `u64` with the convention in a comment survives every test whose fixtures are self-consistent; `Span` makes the conversion a named call. |
 | **Gap vs. padding** | `-` means present-but-deleted; `' '` means not present | GIRI uses `<`/`>` for padding instead; `aln_core::seq` converts. Counting padding as a gap silently corrupts coverage and divergence denominators. |
-| **Matrix orientation** | `matrix[subject][query]`, subject = consensus, query = genomic | Arian Smit's matrices are **not symmetric**. `14p35g` scores `G/A` as −7 and `A/G` as −10. A swapped lookup changes scores without failing. |
+| **Matrix orientation** | crossmatch's: `matrix[subject][query]`, rows = subject = consensus, columns = query = genomic. NCBI's files are the transpose | Symmetry is a property of each matrix, not of the format. Arian Smit's `##p##g` matrices are asymmetric (`14p35g`: `G/A` −7, `A/G` −10), and so is the consensus caller's. A swapped lookup on those changes scores without failing. |
 
-## Two traits, not one
+### Coordinates in more detail
+
+The default is the unmarked one. A field called `start`, `end` or `span`, with
+no suffix, is 0-based half-open on the forward strand. Strand lives in its own
+field (`Alignment::strand`, `SequenceRow::orient`); a reverse-strand interval
+is still stored ascending.
+
+Anything else says so in its name. `Alignment::query_one_based()` and
+`Span::as_1b_closed()` return 1-based closed pairs for writers;
+`Span::from_1b_closed()` is the constructor parsers use. dfam-curator's
+`dfam-coord` audits identifiers in their published form and keeps
+`start_1b`/`end_1b` for that reason. The only fields that are neither are
+positions rather than ranges: RepeatAfterMe's DP engine walks single indices
+(`left_seq_pos`, `upper_seq_bound`) and reads them back as ranges through
+`CoreAlignment::core_span()`.
+
+`SequenceRow::col_start`/`col_end` look like a third convention. They are
+column indices into the gapped row, half-open like everything else. Rust
+slicing is half-open too, which is why the house convention is:
+`&seq[span.range_usize()]` needs no arithmetic.
+
+`docs/coordinate-migration.md` records how the crates got here and what each
+consumer had to change.
+
+### Matrix orientation in more detail
+
+Two orientations are in use, and RepeatMasker ships every matrix in both:
+
+| | rows | columns | files |
+|---|---|---|---|
+| crossmatch | subject (consensus) | query (genomic) | `Matrices/crossmatch/*.matrix` |
+| NCBI | query | subject | `Matrices/ncbi/nt/*.matrix` |
+
+`SubstMatrix::score(subject, query)` uses crossmatch's, which is also
+`SearchResult.pm::rescoreAlignment`'s. `aln_rmblast::matrix` transposes on the
+way out to rmblast, and `aln-parasail` transposes on the way in, because
+parasail looks up `matrix[s2][s1]`. `aln-rmblastn` does not: it takes a path
+to an NCBI-format file and cannot check which layout it was handed.
+
+Whether the transpose matters depends on the matrix:
+
+- The `##p##g` series is asymmetric throughout. `14p35g` scores `G/A` as −7
+  and `A/G` as −10.
+- RepeatModeler's `comparison.matrix` is symmetric over `A C G T` and
+  asymmetric over its IUPAC rows: `C/Y` is 2, `Y/C` is 1.
+- The consensus-calling matrix (`aln_core::consensus::MATRIX`, from GIRI's
+  `DNACONMATRIX`) is asymmetric by design. Rows are the candidate base,
+  columns the observed one: candidate `A` against observed `G` is −8, the
+  reverse −4.
+
+So a swapped lookup is a silent error for all three, and only looks harmless
+on `comparison.matrix` while no ambiguity codes are present.
+
+## Aligner Traits
 
 `parasail` and `rmblast` do not belong behind the same interface:
 
@@ -162,35 +246,6 @@ parasail, Farrar, crossmatch or BLAST implement — and since this module's job 
 to arbitrate the others, it follows the mainstream recurrence. The differential
 suite caught this on the first run.
 
-## GIRI's striped traceback
-
-`docs/giri-farrar-traceback.md` documents how GIRI gets a traceback out of a
-striped SIMD aligner — Farrar's published algorithm is score-only — by storing
-one `short` per cell encoding a whole gap **run length** rather than a direction,
-so traceback decompresses runs instead of stepping cells.
-
-It is a real trade-off, not an accident: two bytes per cell against parasail's
-separate `_trace_` kernels and their `O(mn)` tables. The cost is that the
-reconstructed path is not guaranteed to be the maximum-scoring one, because the
-recorded run lengths track the current best `E`/`F` state rather than the run the
-optimal path takes, and the lazy-F pass rewrites `F` afterwards.
-
-Measured on a real pair: `autocons` reported **918** while the alignment it
-emitted is worth **364** under the same matrix. So `autocons` ranks candidate
-references by DP maxima while building its MSA from the reconstructed paths —
-ranking and content come from different alignments.
-
-## Comparing backends
-
-Compare **scores** exactly. Do *not* require identical tracebacks — on ties,
-which path a backend reports depends on its tie-breaking order, and striped
-implementations legitimately differ from a row-major scalar one. A traceback is
-correct if re-scoring it reproduces the reported score, which is what
-`aln_core::stats::rescore` is for. `aln-reference` exists to be that arbiter.
-
-`aln-parasail/tests/differential.rs` runs 200 randomised pairs per mode against
-`aln-reference`, asserting exact score equality and self-consistent tracebacks on
-both sides.
 
 ## aln-parasail
 
@@ -551,8 +606,8 @@ committed manifest changing:
 
 ```toml
 #[patch."https://github.com/Dfam-consortium/dfam-lib"]
-#aln-core    = { path = "../dfam-lib-project/dfam-lib/aln-core" }
-#dfam-stk-io = { path = "../dfam-lib-project/dfam-lib/dfam-stk-io" }
+#aln-core    = { path = "../dfam-lib/aln-core" }
+#dfam-stk-io = { path = "../dfam-lib/dfam-stk-io" }
 ```
 
 `[patch]` rewrites the *source*, not one dependency edge, so it applies to the

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 description = "Sequence interval type with the coordinate convention in the type rather than the doc comment."
 
 # Dependency-free on purpose, thiserror included.  Everything in the Dfam Rust

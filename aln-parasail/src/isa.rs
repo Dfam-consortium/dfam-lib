@@ -82,7 +82,7 @@ pub const FALLBACK_CHAIN: [Width; 3] = [Width::W8, Width::W16, Width::W32];
 /// The semi-global variants are named from **parasail's** point of view, where
 /// `q` is `s1` and `d` is `s2`.  Because this crate profiles the *subject* as
 /// parasail's `s1`, the mapping to [`AlignMode`](aln_engine::AlignMode) is
-/// inverted — see [`crate::ParasailAligner::kernel`].
+/// inverted — see `ParasailAligner::kernel`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kernel {
     /// Smith-Waterman, local.

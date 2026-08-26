@@ -7,16 +7,17 @@
 //! on both sides, regardless of strand.  This matches `rmblast-lib`'s `Hsp` and
 //! BLAST's `sstart <= send`.
 //!
-//! Every other convention in the ecosystem is 1-based and fully closed
-//! (`dfam-curator`'s `SequenceRow::seq_start`, RepeatMasker's `SearchResult`,
-//! BLAST tabular output).  Conversion happens *only* at I/O boundaries — see
-//! [`Alignment::query_one_based`] and [`Alignment::subject_one_based`].
+//! The file formats around it (Smitten identifiers, Stockholm, RepeatMasker
+//! `.out`, BLAST tabular) are 1-based and fully closed.  Conversion happens
+//! *only* at I/O boundaries, through [`aln_coord::Span`]'s named constructors
+//! and accessors. See [`Alignment::query_one_based`] and
+//! [`Alignment::subject_one_based`].
 //!
 //! # Strand
 //!
 //! [`Alignment::strand`] is the strand of the **subject** relative to the query.
 //! The query is always read forward.  When the strand is
-//! [`Strand::Minus`](crate::seq::Strand::Minus) the alignment walks the query
+//! [`Strand::Minus`] the alignment walks the query
 //! left-to-right and the subject right-to-left, so the subject's forward-
 //! coordinate span is still `subj_start .. subj_end` but its *aligned* bases are
 //! the reverse complement of that span.
