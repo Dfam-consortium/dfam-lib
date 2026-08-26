@@ -12,9 +12,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aln-coord"
+version = "0.1.0"
+
+[[package]]
 name = "aln-core"
 version = "0.1.0"
 dependencies = [
+ "aln-coord",
  "thiserror",
 ]
 
@@ -46,6 +51,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aln-rmblast"
+version = "0.1.0"
+dependencies = [
+ "aln-core",
+ "aln-engine",
+ "anyhow",
+ "rayon",
+ "rmblast-lib",
+]
+
+[[package]]
 name = "aln-rmblastn"
 version = "0.1.0"
 dependencies = [
@@ -53,6 +69,12 @@ dependencies = [
  "aln-engine",
  "tempfile",
 ]
+
+[[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "bitflags"
@@ -167,6 +189,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -244,6 +275,26 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "rmblast-lib"
+version = "0.1.0"
+source = "git+https://github.com/Dfam-consortium/RMBlast.git?tag=3.0.6#1c2313e460d9e0704ff10b240e5b44fa438eabcf"
+dependencies = [
+ "anyhow",
+ "memmap2",
+ "rayon",
+ "rmstats",
+ "thiserror",
+]
+
+[[package]]
+name = "rmstats"
+version = "0.1.0"
+source = "git+https://github.com/Dfam-consortium/RMBlast.git?tag=3.0.6#1c2313e460d9e0704ff10b240e5b44fa438eabcf"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "rustix"

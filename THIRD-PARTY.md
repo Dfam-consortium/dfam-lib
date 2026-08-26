@@ -18,8 +18,10 @@ packager) has to be able to attribute every file by its path alone.
 
 Nothing else in the workspace vendors third-party source. `aln-rmblastn` shells
 out to an external `rmblastn` binary but redistributes none of it; `aln-rmblast`
-takes a path dependency on a sibling checkout of `rmblast-port` (see README) and
-likewise vendors nothing.
+takes a git dependency on [RMBlast](https://github.com/Dfam-consortium/RMBlast)
+(CC0-1.0) and likewise vendors nothing: cargo fetches it at build time, and the
+ALP 1.98 sources RMBlast vendors for its `alp-fit` feature are attributed in
+that repository's own `LICENSE`.
 
 ## Notes
 

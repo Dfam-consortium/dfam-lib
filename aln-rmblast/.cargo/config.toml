@@ -1,5 +1,0 @@
-# RMBlast is a private repository.  libgit2 (cargo's built-in git) handles fewer
-# credential arrangements than the git CLI does — notably ssh-agent setups and
-# any `credential.helper` — so let the CLI do the fetching.
-[net]
-git-fetch-with-cli = true

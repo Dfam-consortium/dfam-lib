@@ -102,18 +102,10 @@ fn offsets_exclude_sentinels() {
 
 /// A hit embedded partway into a longer subject must land at the true offset.
 ///
-/// Ignored in debug builds by an upstream bug — see
-/// `examples/left_flank_panic.rs`. `rmblast-lib`'s `search/gapped.rs:184`
-/// computes `b.as_ptr().add(n - 1 - first_b_index)` unconditionally in the
-/// left-extension (`REVERSE`) pass, before the loop whose bound would make it
-/// safe. When `first_b_index >= n` the `usize` subtraction underflows: it panics
-/// under `debug_assertions` and wraps to an out-of-range pointer in release.
-/// The pointer is never dereferenced, so release results are correct — hence
-/// this runs, and passes, with `--release`.
-#[cfg_attr(
-    debug_assertions,
-    ignore = "rmblast-lib gapped.rs:184 underflows on left extension in debug builds"
-)]
+/// The left flank forces a left extension, the path that underflowed in
+/// `rmblast-lib`'s `search/gapped.rs` before RMBlast 3.0.5.  This test and
+/// `minus_strand_keeps_plus_strand_subject_coordinates` were skipped in debug
+/// builds for that reason; they run in every profile now and guard the fix.
 #[test]
 fn embedded_hit_lands_at_the_right_offset() {
     let mut rng = Rng::new(2);
@@ -143,12 +135,8 @@ fn embedded_hit_lands_at_the_right_offset() {
 /// On the minus strand the subject span must stay plus-strand and ascending,
 /// and `Alignment::gapped` must reconstruct a sensible alignment from it.
 ///
-/// Same upstream constraint as `embedded_hit_lands_at_the_right_offset`: the
-/// subject carries a left flank, so a left extension is required.
-#[cfg_attr(
-    debug_assertions,
-    ignore = "rmblast-lib gapped.rs:184 underflows on left extension in debug builds"
-)]
+/// Carries a left flank like `embedded_hit_lands_at_the_right_offset`, so it
+/// exercises the same left-extension path.
 #[test]
 fn minus_strand_keeps_plus_strand_subject_coordinates() {
     let mut rng = Rng::new(3);

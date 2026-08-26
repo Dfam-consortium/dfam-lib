@@ -6,4 +6,5 @@ license.workspace = true
 description = "Core sequence, scoring-matrix, alignment and MSA types for the Dfam/GIRI alignment stack"
 
 [dependencies]
+aln-coord.workspace = true
 thiserror.workspace = true

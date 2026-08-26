@@ -1,8 +1,11 @@
 # dfam-lib
 
-A Rust pairwise-aligner interface, pairwise and multiple sequence alignment 
-datastructures/functions, and utility functions for the processing and
-analysis of transposable element families.
+A Rust library to support tools used in the curation of transposable element
+sequences.  This library includes interfaces to pairwise alignment programs 
+(parasail/rmblast etc), datastructures for storing alignment data, file parsers
+/exporters, and general analysis functions.  Asside from a handful of new
+features, this library includes many existing concepts from the RepeatMasker, 
+RepeatModeler, Dfam and GIRI/Repbase projects.
 
 ```
 dfam-lib/
@@ -13,15 +16,11 @@ dfam-lib/
 ├── aln-parasail/    parasail 2.6.2 SIMD backend (vendored subset)
 ├── aln-reference/   plain O(mn) Gotoh implementation for comparison
 ├── aln-rmblastn/    SearchEngine over the external rmblastn binary
-├── aln-rmblast/     SearchEngine over the rmblast Rust port (excluded — see below)
+├── aln-rmblast/     SearchEngine over the rmblast Rust port (git dependency)
 ├── dfam-stk-io/     Stockholm 1.0, and the bridge to MultiAlign
 ├── docs/            notes too long to sit in a doc comment
 └── tools/           shell probes for the C++ binaries this stack replaces
 ```
-
-`autocons` is no longer here. It moved to `dfam-curator` alongside `cons-core`
-and the rest of the consensus tooling, and now consumes this repository like any
-other caller — see [Consumers](#consumers).
 
 ## The workspace
 
@@ -41,21 +40,21 @@ Useful flags: `-p aln-core` scopes a command to one member and `--workspace`
 widens it to all of them, while `--all-targets` reaches the examples, benches and
 test targets a bare `cargo check` leaves alone.
 
-`aln-rmblast` is deliberately **not** a member. It depends on
-[RMBlast](https://github.com/Dfam-consortium/RMBlast), pinned to tag `3.0.2` and
-still a private repository, and an unresolvable dependency fails *workspace
-resolution* — as a member it would break `cargo build` for every crate here, not
-only itself. Excluding it keeps the workspace loadable from a bare clone; the
-crate carries its own empty `[workspace]` table and its own `Cargo.lock`, and
-building it is a separate opt-in step. The dependency is written over HTTPS
-rather than SSH, so nothing about it has to change when RMBlast goes public, and
-`aln-rmblast/.cargo/config.toml` sets `net.git-fetch-with-cli` so the git CLI's
-credentials handle the private fetch in the meantime.
+`aln-rmblast` is the only member with a dependency outside crates.io: it takes
+[RMBlast](https://github.com/Dfam-consortium/RMBlast), the Rust port of the
+search engine, as a git dependency pinned to tag `3.0.6`. A build therefore
+fetches from GitHub the first time, and `rmblast-lib`'s default `alp-fit`
+feature compiles the ALP sources vendored in that repository, which needs a C++
+compiler. `aln-parasail` already compiles vendored C, so the C++ compiler is the
+only new build requirement.
 
-To develop against a local `rmblast-port` checkout, swap the `git`/`tag`
+Bump the tag in `aln-rmblast/Cargo.toml` when RMBlast releases, then run
+`cargo update -p rmblast-lib` to move the lockfile with it.
+
+To develop against a local `rmblast` checkout, swap the `git`/`tag`
 dependency for the commented-out `path` line beneath it. A `[patch]` section
-will not serve here: cargo loads the original source before applying a patch,
-and the original source is the part that needs credentials.
+will not serve here: cargo resolves the git source before applying the patch, so
+it still fetches the tag you were trying to bypass.
 
 ## The three conventions
 
@@ -299,26 +298,22 @@ returned HSP under `aln-core`'s model and requires the reported score back, so a
 slip in the transpose, the gap conversion or the edit-script mapping all surface
 in one place.
 
-### Upstream bug: left extension underflows
+### Fixed upstream: the left extension underflowed
 
-`rmblast-lib/src/search/gapped.rs:184` initialises the `b` pointer
-unconditionally in the left-extension (`REVERSE`) pass, before the loop bound
-that would make it safe:
+Through RMBlast 3.0.4, `rmblast-lib`'s left-extension (`REVERSE`) pass in
+`search/gapped.rs` formed its `b` pointer as `b.as_ptr().add(n - 1 -
+first_b_index)` ahead of the loop bound that made it safe. When `first_b_index`
+reached `n` the `usize` subtraction underflowed: a panic under
+`debug_assertions`, and in release an out-of-range pointer that nothing ever
+dereferenced, so results stayed correct while forming the pointer was undefined
+behaviour. Any hit that did not start at the beginning of the subject triggered
+it, and five bases of left flank sufficed, which is the ordinary RepeatMasker
+shape.
 
-```rust
-unsafe { b.as_ptr().add(n - 1 - first_b_index) }
-```
-
-When `first_b_index >= n` the `usize` subtraction underflows. It panics under
-`debug_assertions`, and in release wraps to an out-of-range pointer that is never
-dereferenced — so release results are correct, but forming the pointer is
-undefined behaviour and is not guaranteed to stay benign.
-
-Trigger: any hit that does not start at the very beginning of the subject.
-**Five bases of subject left-flank is enough** — the ordinary RepeatMasker shape.
-`cargo run -p aln-rmblast --example left_flank_panic` reproduces it and suggests
-a one-line fix. Two tests are `#[cfg_attr(debug_assertions, ignore)]` for this
-reason; they pass under `cargo test -p aln-rmblast --release`.
+RMBlast 3.0.5 clamps the pointer when the loop will not run.
+`embedded_hit_lands_at_the_right_offset` and
+`minus_strand_keeps_plus_strand_subject_coordinates` carried
+`#[cfg_attr(debug_assertions, ignore)]` for this and now run in every profile.
 
 ### Searching in batches
 
@@ -685,5 +680,3 @@ on Apple Silicon `build.rs` fails with a message naming the feature to turn off.
   re-export and nothing else. What is left is `blast.rs`, a second rmblastn
   wrapper that predates `aln-rmblastn` and does the same work behind a different
   interface.
-- **Open, deferred:** the `rmblast-lib` left-extension underflow above — decide
-  whether to patch `rmblast-port` and drop the two `#[ignore]` attributes.

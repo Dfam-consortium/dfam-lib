@@ -1,44 +1,33 @@
 [package]
 name = "aln-rmblast"
-version = "0.1.0"
-edition = "2021"
-license = "CC0-1.0"
-repository = "https://github.com/Dfam-consortium/dfam-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "rmblast search-engine backend for the Dfam/GIRI alignment stack"
 
-# This crate is NOT a member of the dfam-lib workspace (see `exclude` in the
-# root Cargo.toml): it depends on RMBlast, which is a private repository, and an
-# unresolvable dependency fails *workspace resolution* — it would break
-# `cargo build` for every crate in the workspace, not just this one.  Standing
-# alone means `.workspace = true` inheritance is unavailable, so the package
-# fields above and the dependency versions below are spelled out.
-[workspace]
-
 [dependencies]
-aln-core = { path = "../aln-core" }
-aln-engine = { path = "../aln-engine" }
-rayon = "1"
+aln-core.workspace = true
+aln-engine.workspace = true
+rayon.workspace = true
 anyhow = "1"
 
 # The Rust port of rmblast, pinned to a release tag rather than taken from a
 # sibling checkout, so this builds from any directory layout.
 #
-# HTTPS rather than SSH. RMBlast is private for now, so either scheme needs
-# credentials; HTTPS is the form that keeps working unchanged once it goes
-# public, and it does not require every consumer to have GitHub SSH keys. In
-# GitHub Actions a private cross-repo dependency needs a PAT, a deploy key, or a
-# `url.insteadOf` rewrite — the automatic GITHUB_TOKEN is scoped to the calling
-# repository alone.
+# Bump the tag on an RMBlast release, then run `cargo update -p rmblast-lib` to
+# move the workspace lockfile with it.
 #
-# rmblast-lib's default `alp-fit` feature vendors ALP and needs a C++ toolchain.
-# Dropping it via `default-features = false` costs the last-resort Gumbel
-# parameter fit in the E-value statistics hierarchy; note the dependency line
-# below does not currently set it.
-rmblast-lib = { git = "https://github.com/Dfam-consortium/RMBlast.git", tag = "3.0.5" }
+# rmblast-lib's default `alp-fit` feature compiles the ALP sources vendored in
+# that repository, so it needs a C++ compiler; aln-parasail already requires a C
+# one for its own vendored sources.  Dropping the feature via
+# `default-features = false` costs the last-resort Gumbel parameter fit in the
+# E-value statistics hierarchy.  The line below leaves it on.
+rmblast-lib = { git = "https://github.com/Dfam-consortium/RMBlast.git", tag = "3.0.6" }
 
 # To develop against a local rmblast-port checkout, replace the line above with
-# the path below.  A `[patch]` section does NOT work here: cargo loads the
-# original git source before applying the patch, so it would still need to reach
-# the private repository.
+# the path below.  A `[patch]` section is not a substitute: cargo resolves the
+# git source first and applies the patch afterwards, so it still fetches the
+# tag you are trying to bypass.
 #
 # rmblast-lib = { path = "../../../rmblast-port/rmblast/rmblast-lib" }

@@ -314,7 +314,9 @@ impl Alignment {
         self.subj_len.map(|l| l.saturating_sub(self.subj_end))
     }
 
-    /// Check that the edit script agrees with the recorded coordinates.
+    /// Check that the edit script agrees with the recorded coordinates, that
+    /// neither end runs past a known sequence length, and that both sides align
+    /// at least one base.
     pub fn validate(&self) -> Result<()> {
         let q = self.edits.query_consumed() as usize;
         let s = self.edits.subject_consumed() as usize;
@@ -345,6 +347,26 @@ impl Alignment {
                     self.subj_name, self.subj_end
                 )));
             }
+        }
+        // A side that consumes no bases is not an alignment: an empty edit
+        // script, or one made entirely of gaps against the other sequence.  No
+        // aligner in this workspace emitted either when the check went in, and
+        // the suite passed unchanged, so reaching this is a construction bug.
+        //
+        // It also lets the 1-based writers drop their empty case.  A closed
+        // convention cannot express an empty range, so `Span::as_1b_closed`
+        // returns `None`; a writer working from a validated `Alignment` can
+        // `.expect()` that away instead of inventing a representation.
+        if self.query_start == self.query_end || self.subj_start == self.subj_end {
+            return Err(Error::Alignment(format!(
+                "{} vs {}: zero-length alignment (query {}..{}, subject {}..{})",
+                self.query_name,
+                self.subj_name,
+                self.query_start,
+                self.query_end,
+                self.subj_start,
+                self.subj_end
+            )));
         }
         Ok(())
     }
@@ -591,6 +613,32 @@ mod tests {
         assert!(a.subj_start < a.subj_end);
         assert_eq!(a.subject_one_based(), (3, 5));
         assert_eq!(a.query_one_based(), (1, 3));
+    }
+
+    #[test]
+    fn validate_rejects_an_empty_edit_script() {
+        // A construction bug, not something an aligner emits.
+        let a = Alignment::new("q", "s", 0, 0, Strand::Plus, 0, EditScript::new());
+        assert!(a.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_an_alignment_that_is_all_gap_on_one_side() {
+        // A non-empty script can still consume nothing on one side, which leaves
+        // that span empty and unwritable in any closed convention.
+        let e = script(&[(EditOp::GapInQuery, 3)]);
+        let a = Alignment::new("q", "s", 0, 0, Strand::Plus, 0, e);
+        assert_eq!(a.query_span(), 0);
+        assert!(a.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_a_single_aligned_base() {
+        // The smallest thing that is still an alignment.
+        let e = script(&[(EditOp::Sub, 1)]);
+        let a = Alignment::new("q", "s", 0, 0, Strand::Plus, 1, e);
+        a.validate().unwrap();
+        assert_eq!(a.query_one_based(), (1, 1));
     }
 
     #[test]

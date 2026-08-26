@@ -22,6 +22,7 @@ use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
 use crate::Strand;
+use aln_coord::Span;
 
 /// One pairwise alignment record from a crossmatch `.align` file.
 #[derive(Debug, Clone)]
@@ -37,22 +38,21 @@ pub struct PairwiseHit {
 
     /// Query sequence name.
     pub query_name: String,
-    /// Query start (1-based, fully-closed).
-    pub query_start: u64,
-    /// Query end (1-based, fully-closed).
-    pub query_end: u64,
-    /// Bases remaining in query after query_end.
+    /// Query span.  `.align` files use 1-based fully-closed coordinates;
+    /// `parse_score_line` converts them, and nothing else does.
+    pub query: Span,
+    /// Bases remaining in the query past the end of `query`.
     pub query_remaining: u64,
     /// Gapped query sequence (may be empty if file has no alignment strings).
     pub query_seq: Vec<u8>,
 
     /// Subject sequence name.
     pub subj_name: String,
-    /// Subject start (1-based, fully-closed; always ≤ subj_end regardless of strand).
-    pub subj_start: u64,
-    /// Subject end (1-based, fully-closed).
-    pub subj_end: u64,
-    /// Bases remaining in subject.
+    /// Subject span, ascending on both strands.  RepeatMasker writes a
+    /// reverse-complement record as `(sLeft) sEnd sStart`; `parse_score_line`
+    /// puts the pair back in order.
+    pub subj: Span,
+    /// Bases remaining in the subject past the end of `subj`.
     pub subj_remaining: u64,
     /// Gapped subject sequence.
     pub subj_seq: Vec<u8>,
@@ -174,6 +174,29 @@ fn is_score_line(line: &str) -> bool {
     true
 }
 
+/// Build a [`Span`] from the 1-based fully-closed pair in a `.align` header.
+///
+/// The field readers below fall back to 0 when a column is missing, and 0 is not
+/// a reachable 1-based coordinate.  The parser used to store those zeros as a
+/// hit anchored at the start of the sequence.  It now rejects the record and
+/// quotes the line.
+///
+/// An empty span is rejected too, for the same reason `Alignment::validate`
+/// rejects a zero-length alignment: a header claiming no bases is malformed, and
+/// letting it through would leave every consumer to handle a `None` from
+/// `Span::as_1b_closed` that no well-formed file can produce.
+fn span_1b(start: u64, end: u64, side: &str, line: &str) -> io::Result<Span> {
+    let bad = |msg: String| io::Error::new(io::ErrorKind::InvalidData, msg);
+    let span = Span::from_1b_closed(start, end)
+        .map_err(|e| bad(format!("{side} coordinates in {line:?}: {e}")))?;
+    if span.is_empty() {
+        return Err(bad(format!(
+            "{side} coordinates in {line:?}: {start}-{end} covers no bases"
+        )));
+    }
+    Ok(span)
+}
+
 /// Parse a score header line into a PairwiseHit (without alignment sequences).
 ///
 /// Two field layouts are supported:
@@ -259,13 +282,11 @@ fn parse_score_line(line: &str) -> io::Result<Option<PairwiseHit>> {
         pct_del,
         pct_ins,
         query_name,
-        query_start,
-        query_end,
+        query: span_1b(query_start, query_end, "query", line)?,
         query_remaining,
         query_seq: Vec::new(),
         subj_name,
-        subj_start,
-        subj_end,
+        subj: span_1b(subj_start, subj_end, "subject", line)?,
         subj_remaining,
         subj_seq: Vec::new(),
         orientation,
@@ -325,7 +346,7 @@ mod tests {
 
 Gap_init rate = 25.0
 
-254 28.0 4.0 9.0 seq-13 3873751 3873963 (114) C L2d 3331 3075 (6)
+254 28.0 4.0 9.0 seq-13 3873751 3873963 (114) C L2d (6) 3331 3075
 
 C seq-13   3873963 CTGCAACATGCGACACAACACGCGT 3939
                     v  i  ii   v ii   i   i
@@ -342,8 +363,9 @@ Gap_init rate = 22.0
         let h0 = &hits[0];
         assert_eq!(h0.sw_score, 2334);
         assert_eq!(h0.query_name, "Human");
-        assert_eq!(h0.query_start, 127);
-        assert_eq!(h0.query_end, 737);
+        assert_eq!(h0.query.as_1b_closed(), Some((127, 737)));
+        assert_eq!(h0.query.as_0b_half_open(), (126, 737));
+        assert_eq!(h0.query.len(), 611);
         assert_eq!(h0.orientation, Strand::Plus);
         assert!(!h0.query_seq.is_empty());
         assert!(!h0.subj_seq.is_empty());
@@ -352,6 +374,46 @@ Gap_init rate = 22.0
         assert_eq!(h1.sw_score, 254);
         assert_eq!(h1.query_name, "seq-13");
         assert_eq!(h1.orientation, Strand::Minus);
+        // RepeatMasker writes a C record as `(sLeft) sEnd sStart`.  The span
+        // comes back ascending.
+        assert_eq!(h1.subj.as_1b_closed(), Some((3075, 3331)));
+        assert_eq!(h1.subj_remaining, 6);
+        assert!(h1.subj.start() < h1.subj.end());
+    }
+
+    /// A header line copied verbatim from RepeatMasker output, checked in every
+    /// convention it crosses.  The hand-written fixture above put `(sLeft)` in
+    /// the forward-strand position, so the parser read `subj_start` as 0.  No
+    /// test looked at that field until it became a `Span`.
+    #[test]
+    fn real_repeatmasker_c_line_calibration() {
+        const LINE: &str = "\
+243 30.00 0.00 0.00 seq 970 1069 (22196) C L2-1_AMi#LINE/L2 (679) 556 457 m_b1s551i0 3
+";
+        let hits = parse(Cursor::new(LINE)).unwrap();
+        assert_eq!(hits.len(), 1);
+        let h = &hits[0];
+
+        assert_eq!(h.orientation, Strand::Minus);
+        assert_eq!(h.query.as_1b_closed(), Some((970, 1069)));
+        assert_eq!(h.query.as_0b_half_open(), (969, 1069));
+        assert_eq!(h.query.len(), 100);
+        assert_eq!(h.query_remaining, 22196);
+
+        assert_eq!(h.subj_name, "L2-1_AMi#LINE/L2");
+        assert_eq!(h.subj.as_1b_closed(), Some((457, 556)));
+        assert_eq!(h.subj.as_0b_half_open(), (456, 556));
+        assert_eq!(h.subj.len(), 100);
+        assert_eq!(h.subj_remaining, 679);
+    }
+
+    #[test]
+    fn a_header_covering_no_bases_is_rejected() {
+        // qStart 100, qEnd 99 is the 1-based empty encoding.  Accepting it would
+        // hand every consumer a `None` that no well-formed file produces.
+        const LINE: &str = "254 28.0 4.0 9.0 seq 100 99 (114) L2d 1 50 (6)\n";
+        let err = parse(Cursor::new(LINE)).unwrap_err();
+        assert!(err.to_string().contains("covers no bases"), "{err}");
     }
 
     #[test]
@@ -374,7 +436,7 @@ Gap_init rate = 22.0
 
 Transitions / transversions = 2.17 (26 / 12); Gap_init rate = 0.00 (2 / 421), avg. gap size = 2.50 (5 / 2)
 
-254 28.0 4.0 9.0 seq-13 3873751 3873963 (114) C L2d 3331 3075 (6)
+254 28.0 4.0 9.0 seq-13 3873751 3873963 (114) C L2d (6) 3331 3075
 
 C seq-13   3873963 CTGCAACATGCGACACAACACGCGT 3939
                     v  i  ii   v ii   i   i

@@ -1,21 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
+    "aln-coord",
     "aln-core",
     "aln-engine",
     "aln-parasail",
+    "aln-rmblast",
     "aln-rmblastn",
     "aln-reference",
     "dfam-stk-io",
 ]
-
-# aln-rmblast is deliberately NOT a member: it depends on RMBlast, which is
-# still private, and an unresolvable dependency fails *workspace resolution* —
-# it would make `cargo build` fail for every crate here, not just that one, on
-# any machine without access.  Excluding it keeps the workspace loadable from a
-# bare clone; `cargo build` inside aln-rmblast/ is a separate, opt-in step.
-# Move the entry back into `members` once RMBlast is public.
-exclude = ["aln-rmblast"]
 
 [workspace.package]
 version = "0.1.0"
@@ -24,9 +18,11 @@ license = "CC0-1.0"
 repository = "https://github.com/Dfam-consortium/dfam-lib"
 
 [workspace.dependencies]
+aln-coord = { path = "aln-coord" }
 aln-core = { path = "aln-core" }
 aln-engine = { path = "aln-engine" }
 aln-parasail = { path = "aln-parasail" }
+aln-rmblast = { path = "aln-rmblast" }
 aln-rmblastn = { path = "aln-rmblastn" }
 aln-reference = { path = "aln-reference" }
 dfam-stk-io = { path = "dfam-stk-io" }

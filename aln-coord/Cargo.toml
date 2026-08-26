@@ -1,0 +1,12 @@
+[package]
+name = "aln-coord"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Sequence interval type with the coordinate convention in the type rather than the doc comment."
+
+# Dependency-free on purpose, thiserror included.  Everything in the Dfam Rust
+# stack will end up depending on this crate, and Smitten may too; it ships Perl
+# and Python alongside its Rust implementation, so it can only take a leaf.
+[dependencies]
