@@ -13,11 +13,11 @@ dependencies = [
 
 [[package]]
 name = "aln-coord"
-version = "0.1.2"
+version = "0.2.0"
 
 [[package]]
 name = "aln-core"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-coord",
  "thiserror",
@@ -25,7 +25,7 @@ dependencies = [
 
 [[package]]
 name = "aln-engine"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-core",
  "rayon",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "aln-parasail"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "aln-reference"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "aln-rmblast"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "aln-rmblastn"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -125,7 +125,7 @@ checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
 
 [[package]]
 name = "dfam-stk-io"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aln-coord",
  "aln-core",

@@ -1,8 +1,8 @@
 # Standardising coordinates on 0-based half-open
 
 Working notes for a migration in progress. Phase 0 shipped in `0.1.1`; the
-current tag is `0.1.2`, which only fixed a version field. Phases 1–5 are done
-in the working tree and not yet tagged. This records the reasoning and the dead ends, not just the steps,
+current tag is `0.1.2`, which only fixed a version field. Phases 1–5 shipped in
+`0.2.0`. This records the reasoning and the dead ends, not just the steps,
 because the next person will not have been in the room.
 
 ## Why
@@ -131,11 +131,10 @@ reason `Alignment::validate` does.
 **dfam-curator** consumed it in `src/build.rs`: four accessors became
 `ref_span`/`inst_span` plus a `one_based` converter. No call sites changed.
 
-## Phases 1–4 (working tree, unreleased)
+## Phases 1–4 (shipped in `0.2.0`)
 
 The plan below was written as five phases, to be shipped one tag at a time.
-They landed together instead, in one uncommitted change across the three
-repos. The reason: every phase was a change of both name and type
+They landed together instead, in one change across the three repos. The reason: every phase was a change of both name and type
 (`seq_start: u64` → `span: Option<Span>`), so the compiler found every site
 in one pass, and the intermediate state the phases were protecting against
 (`Option<u64>` still holding 1-based values under a type that does not say
@@ -205,16 +204,13 @@ the whole string is kept as the name with no span. Previously it parsed as
 
 ### Build state
 
-All three checkouts under `~/projects/Claude/combined/` have their `[patch]`
-sections **active**, pointing at the sibling working copies (`../dfam-lib/…`,
-`../RepeatAfterMe/ram-core`). That is what lets the three build together
-before any tag moves. Follow the release procedure below to ship. dfam-curator's pins were
-moved to `0.1.2` / `RepeatAfterMe_V0.1.2` in the same edit; they will need to
-move again to whatever tag carries this change.
+Released. dfam-lib `0.2.0` (`34f2134`), RepeatAfterMe `RepeatAfterMe_V0.2.0`
+(`8fbc350`), dfam-curator `8c8fa56` on `main` pinning both. The `[patch]`
+sections in the two consumers are commented out again.
 
-## Phase 5: RepeatAfterMe (working tree, unreleased)
+## Phase 5: RepeatAfterMe (shipped in `RepeatAfterMe_V0.2.0`)
 
-Done in the same working tree. The engine (`engine.rs`) is a banded DP that
+Done in the same release. The engine (`engine.rs`) is a banded DP that
 walks single positions in the concatenated library buffer with the C's
 wrapping `uint64_t` arithmetic; `left_seq_pos`, `right_seq_pos`,
 `lower_seq_bound` and `upper_seq_bound` on `CoreAlignment` are positions, not
@@ -339,9 +335,9 @@ real one shows nothing. `/u3/home/rhubley` and `/home/rhubley` reach the same fi
 
 | repo | state |
 |---|---|
-| dfam-lib | `fc37d3b` (tag `0.1.2`) + uncommitted Phases 1–4 |
-| RepeatAfterMe | `6f284c1` (tag `RepeatAfterMe_V0.1.2`) + uncommitted Phase 5 and active `[patch]` |
-| dfam-curator | `78b9dc7` + uncommitted consumer changes, pins at `0.1.2` / `V0.1.2`, active `[patch]` |
+| dfam-lib | tag `0.2.0`, pushed |
+| RepeatAfterMe | tag `RepeatAfterMe_V0.2.0`, pushed |
+| dfam-curator | `main` at `8c8fa56`, pushed, pins `0.2.0` / `RepeatAfterMe_V0.2.0` |
 
-Nothing is committed or tagged. All five phases are in the working tree; what
-remains is the release procedure.
+All five phases are shipped. Open: `#[non_exhaustive]` on the public structs
+before anything outside these three repos depends on them.
