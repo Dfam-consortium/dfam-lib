@@ -13,11 +13,11 @@ dependencies = [
 
 [[package]]
 name = "aln-coord"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "aln-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-coord",
  "thiserror",
@@ -25,7 +25,7 @@ dependencies = [
 
 [[package]]
 name = "aln-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-core",
  "rayon",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "aln-parasail"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "aln-reference"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "aln-rmblast"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "aln-rmblastn"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-core",
  "aln-engine",
@@ -125,7 +125,7 @@ checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
 
 [[package]]
 name = "dfam-stk-io"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "aln-coord",
  "aln-core",
@@ -279,8 +279,8 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rmblast-lib"
-version = "0.1.0"
-source = "git+https://github.com/Dfam-consortium/RMBlast.git?tag=3.0.6#1c2313e460d9e0704ff10b240e5b44fa438eabcf"
+version = "0.1.3"
+source = "git+https://github.com/Dfam-consortium/RMBlast.git?tag=3.0.9#1ef7bdfeb4b0efbfce3dbaac3a3a2794ccfaefff"
 dependencies = [
  "anyhow",
  "memmap2",
@@ -292,7 +292,7 @@ dependencies = [
 [[package]]
 name = "rmstats"
 version = "0.1.0"
-source = "git+https://github.com/Dfam-consortium/RMBlast.git?tag=3.0.6#1c2313e460d9e0704ff10b240e5b44fa438eabcf"
+source = "git+https://github.com/Dfam-consortium/RMBlast.git?tag=3.0.9#1ef7bdfeb4b0efbfce3dbaac3a3a2794ccfaefff"
 dependencies = [
  "cc",
 ]
