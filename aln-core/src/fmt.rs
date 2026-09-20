@@ -750,6 +750,23 @@ mod tests {
         assert!(out.contains("CpG sites = 3, Kimura (unadjusted) = 5.5"), "{out}");
     }
 
+    /// `crossmatch::parse` has to read what this module writes.  It used to take
+    /// the footer for sequence rows and append `14p35g` to the query.
+    #[test]
+    fn crossmatch_parser_reads_the_full_footer_back() {
+        let (mut r, q, s) = plus_hit();
+        r.matrix_name = Some("14p35g".into());
+        r.kimura_divergence = Some(4.25);
+        r.raw_kimura_divergence = Some(5.5);
+        r.cpg_sites = Some(3);
+        let out = to_crossmatch(&r, &q, &s, AlignmentMode::WithQuerySeq).unwrap();
+
+        let hits = crate::crossmatch::parse(std::io::Cursor::new(out)).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].query_seq, q);
+        assert_eq!(hits[0].subj_seq, s);
+    }
+
     #[test]
     fn mut_char_is_keyed_query_then_subject() {
         assert_eq!(mut_char(b'C', b'T'), Some('i'));

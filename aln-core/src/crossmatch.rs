@@ -10,6 +10,10 @@
 ///          <matchString>
 /// [C] <subjName>  <sStart> <gappedSubjSeq>  <sEnd>
 ///
+/// [Matrix = ...]
+/// [Kimura (with divCpGMod) = ...]
+/// [CpG sites = ..., Kimura (unadjusted) = ...]
+/// [Transitions / transversions = ...]
 /// Gap_init rate = ...
 /// ```
 ///
@@ -121,10 +125,16 @@ pub fn parse<R: BufRead>(reader: R) -> io::Result<Vec<PairwiseHit>> {
             match align_pos {
                 1 => {
                     // Query sequence line — append (multi-block alignments concatenate).
-                    if let Some(seq) = parse_align_seq_line(trimmed) {
-                        hit.query_seq.extend_from_slice(&seq);
+                    // A line of any other shape ends the blocks, and the parser ignores
+                    // the rest of the record.  In RepeatMasker output that line is the
+                    // start of the trailer (`Matrix = ...`).
+                    match parse_align_seq_line(trimmed) {
+                        Some(seq) => {
+                            hit.query_seq.extend_from_slice(&seq);
+                            align_pos = 2;
+                        }
+                        None => align_pos = 0,
                     }
-                    align_pos = 2;
                 }
                 2 => {
                     // Match-indicator line (v/i/space characters) — discard content,
@@ -133,10 +143,13 @@ pub fn parse<R: BufRead>(reader: R) -> io::Result<Vec<PairwiseHit>> {
                 }
                 3 => {
                     // Subject sequence line — append.
-                    if let Some(seq) = parse_align_seq_line(trimmed) {
-                        hit.subj_seq.extend_from_slice(&seq);
+                    match parse_align_seq_line(trimmed) {
+                        Some(seq) => {
+                            hit.subj_seq.extend_from_slice(&seq);
+                            align_pos = 1; // cycle back for next block
+                        }
+                        None => align_pos = 0,
                     }
-                    align_pos = 1; // cycle back for next block
                 }
                 _ => {}
             }
@@ -297,19 +310,23 @@ fn parse_score_line(line: &str) -> io::Result<Option<PairwiseHit>> {
 /// Parse an alignment sequence line of the form:
 /// `[C] <name>  <pos1>  <gappedSeq>  <pos2>`
 ///
-/// The gapped sequence is the third whitespace-delimited field (or second if no
-/// "C" prefix), surrounded by position numbers.
+/// Returns `None` unless the line has four fields after the optional `C` and
+/// both positions are numeric.  RepeatMasker follows the last block with trailer
+/// lines (`Matrix = 20p39g.matrix`, `CpG sites = 23, ...`).  The parser used to
+/// take the third field of any line, which put `20p39g.matrix` in the query row
+/// and `=` in the subject.
 fn parse_align_seq_line(line: &str) -> Option<Vec<u8>> {
     let fields: Vec<&str> = line.split_whitespace().collect();
-    // Layout: [C] name pos1 GAPPEDSEQ pos2
-    // With C: fields = ["C", name, pos1, seq, pos2] -> seq at index 3
-    // Without: fields = [name, pos1, seq, pos2] -> seq at index 2
-    let seq_idx = if fields.first().map(|f| *f == "C").unwrap_or(false) {
-        3
-    } else {
-        2
+    // A sequence can be named "C", so the flag is a leading "C" with four fields after it.
+    let row = match fields.as_slice() {
+        ["C", row @ ..] if row.len() == 4 => row,
+        row if row.len() == 4 => row,
+        _ => return None,
     };
-    fields.get(seq_idx).map(|s| s.as_bytes().to_vec())
+    if parse_u64(row[1]).is_err() || parse_u64(row[3]).is_err() {
+        return None;
+    }
+    Some(row[2].as_bytes().to_vec())
 }
 
 // ── Number parsing helpers ────────────────────────────────────────────────────
@@ -452,5 +469,81 @@ Transitions / transversions = 1.00 (4 / 4); Gap_init rate = 0.00 (0 / 24), avg. 
         assert!(!q0.contains("transversions"), "query_seq contaminated: {q0}");
         assert!(!s0.contains("transversions"), "subj_seq contaminated: {s0}");
         assert_eq!(hits[1].orientation, Strand::Minus);
+    }
+
+    /// The trailer lines `fmt::write_footer` emits, which follow RepeatMasker's.
+    /// This fixture is hand-written, not copied from a run.  The parser is
+    /// expecting a query row when it reads `Matrix =` and a subject row when it
+    /// reads `CpG sites =`, so it used to append `20p39g.matrix` to the query and
+    /// `=` to the subject.
+    #[test]
+    fn repeatmasker_trailer_is_not_sequence() {
+        const TRAILER: &str = "\
+2334 8.44 0.00 3.25 Human 127 159 (8222) AluSx 1 33 (14)
+
+  Human       127 TAAAGTCCCTGCTCGCCCCCGCTCCAGCTCGCC 159
+                   vvvi  vv  v v   v   v      v v  v
+  AluSx       1   TAAGATCCCTGCTCACCCCCGCTCCAGGTCACC 33
+
+Matrix = 20p39g.matrix
+Kimura (with divCpGMod) = 31.22
+CpG sites = 23, Kimura (unadjusted) = 35.48
+Transitions / transversions = 2.17 (26/12)
+Gap_init rate = 0.00 (2 / 421), avg. gap size = 2.50 (5 / 2)
+
+254 28.0 4.0 9.0 seq-13 3873751 3873963 (114) C L2d (6) 3331 3075
+
+C seq-13   3873963 CTGCAACATGCGACACAACACGCGT 3939
+                    v  i  ii   v ii   i   i
+  L2d      3331    CTACAACATACGCCACAACACGCGT 3305
+
+Matrix = 20p39g.matrix
+Transitions / transversions = 1.00 (4/4)
+Gap_init rate = 0.00 (0 / 24), avg. gap size = 0.00 (0 / 0)
+";
+        let hits = parse(Cursor::new(TRAILER)).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].query_seq, b"TAAAGTCCCTGCTCGCCCCCGCTCCAGCTCGCC");
+        assert_eq!(hits[0].subj_seq, b"TAAGATCCCTGCTCACCCCCGCTCCAGGTCACC");
+        assert_eq!(hits[1].query_seq, b"CTGCAACATGCGACACAACACGCGT");
+        assert_eq!(hits[1].subj_seq, b"CTACAACATACGCCACAACACGCGT");
+    }
+
+    /// The parser must not append a trailer line it has no rule for.  Only
+    /// `[C] name pos seq pos` is a row.
+    #[test]
+    fn unknown_trailer_line_is_not_sequence() {
+        const UNKNOWN: &str = "\
+2334 8.44 0.00 3.25 Human 127 159 (8222) AluSx 1 33 (14)
+
+  Human       127 TAAAGTCCCTGCTCGCCCCCGCTCCAGCTCGCC 159
+                   vvvi  vv  v v   v   v      v v  v
+  AluSx       1   TAAGATCCCTGCTCACCCCCGCTCCAGGTCACC 33
+
+Some future = statistic
+Another new = one
+Third line = here
+Gap_init rate = 0.00 (2 / 421), avg. gap size = 2.50 (5 / 2)
+";
+        let hits = parse(Cursor::new(UNKNOWN)).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].query_seq, b"TAAAGTCCCTGCTCGCCCCCGCTCCAGCTCGCC");
+        assert_eq!(hits[0].subj_seq, b"TAAGATCCCTGCTCACCCCCGCTCCAGGTCACC");
+    }
+
+    #[test]
+    fn align_seq_line_shape() {
+        assert_eq!(
+            parse_align_seq_line("Human 127 TAAAGT 132"),
+            Some(b"TAAAGT".to_vec())
+        );
+        assert_eq!(
+            parse_align_seq_line("C seq-13 3873963 CTG-CA 3939"),
+            Some(b"CTG-CA".to_vec())
+        );
+        // A row for a sequence named "C" has no complement flag.
+        assert_eq!(parse_align_seq_line("C 5 ACGT 8"), Some(b"ACGT".to_vec()));
+        assert_eq!(parse_align_seq_line("Matrix = 20p39g.matrix"), None);
+        assert_eq!(parse_align_seq_line("CpG sites = 23, Kimura (unadjusted) = 35.48"), None);
     }
 }
