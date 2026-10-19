@@ -434,6 +434,23 @@ impl Alignment {
         Ok((q_out, s_out))
     }
 
+    /// [`gapped`](Self::gapped), but reading left-to-right along the
+    /// **subject**: on the minus strand both rows are reverse-complemented, so
+    /// the subject row is the forward subject slice `subj_start..subj_end` and
+    /// the query row is the reverse-complemented instance.
+    ///
+    /// This is the layout [`assemble_msa`](crate::msa::assemble_msa) needs when
+    /// the subject is the shared reference: every member's reference row must
+    /// read forward from `ref_start`.  On the plus strand it equals `gapped`.
+    pub fn gapped_on_subject(&self, query: &[u8], subject: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+        let (mut q, mut s) = self.gapped(query, subject)?;
+        if self.strand.is_minus() {
+            seq::revcomp_in_place(&mut q);
+            seq::revcomp_in_place(&mut s);
+        }
+        Ok((q, s))
+    }
+
     /// Build from a pair of gapped strings plus coordinates — the inverse of
     /// [`gapped`](Self::gapped), for parsing crossmatch / BLAST / Stockholm.
     ///
@@ -510,6 +527,21 @@ mod tests {
             s.push(op, n);
         }
         s
+    }
+
+    #[test]
+    fn gapped_on_subject_reads_along_the_subject() {
+        // Query ACGTT aligns to the minus strand of subject AACGT: revcomp(AACGT) = ACGTT.
+        let subject = b"AACGT";
+        let query = b"ACGTT";
+        let a = Alignment::new("q", "s", 0, 0, Strand::Minus, 10, script(&[(EditOp::Sub, 5)]));
+        let (q, s) = a.gapped(query, subject).unwrap();
+        assert_eq!((q.as_slice(), s.as_slice()), (&b"ACGTT"[..], &b"ACGTT"[..]), "gapped: query order");
+        let (q, s) = a.gapped_on_subject(query, subject).unwrap();
+        assert_eq!(s, subject.to_vec(), "subject row is the forward subject");
+        assert_eq!(q, b"AACGT".to_vec(), "query row is the reverse-complemented instance");
+        let p = Alignment::new("q", "s", 0, 0, Strand::Plus, 10, script(&[(EditOp::Sub, 5)]));
+        assert_eq!(p.gapped_on_subject(subject, subject).unwrap(), p.gapped(subject, subject).unwrap());
     }
 
     #[test]
