@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 license = "CC0-1.0"
 repository = "https://github.com/Dfam-consortium/dfam-lib"
@@ -31,6 +31,29 @@ dfam-stk-io = { path = "dfam-stk-io" }
 
 thiserror = "2"
 rayon = "1"
+
+# Dfam-consortium crates from other repositories.  Pinned to release tags:
+# without a tag a git dependency resolves to whatever the default branch holds
+# at fetch time, so two clones of the same dfam-lib tag can build different
+# code.  Bump a tag on an upstream release, then run `cargo update -p <crate>`
+# to move the workspace lockfile with it.
+
+# The Rust port of rmblast.  Its default `alp-fit` feature compiles the ALP
+# sources vendored in that repository, so it needs a C++ compiler; aln-parasail
+# already requires a C one for its own vendored sources.  Dropping the feature
+# via `default-features = false` (here, not in the member crate -- cargo only
+# honours it on the workspace entry) costs the last-resort Gumbel parameter fit
+# in the E-value statistics hierarchy.  The line below leaves it on.
+rmblast-lib = { git = "https://github.com/Dfam-consortium/RMBlast.git", tag = "3.0.10" }
+
+# To develop against a local rmblast-port checkout, replace the line above with
+# the path below.  A `[patch]` section is not a substitute: cargo resolves the
+# git source first and applies the patch afterwards, so it still fetches the
+# tag you are trying to bypass.
+#
+# rmblast-lib = { path = "../../rmblast-port/rmblast/rmblast-lib" }
+
+smitten = { git = "https://github.com/Dfam-consortium/Smitten.git", tag = "1.0.2" }
 
 [profile.release]
 opt-level = 3

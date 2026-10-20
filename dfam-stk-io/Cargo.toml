@@ -14,7 +14,4 @@ path = "src/lib.rs"
 [dependencies]
 aln-core.workspace = true
 aln-coord.workspace = true
-# Pinned: without a tag this resolves to whatever the default branch holds
-# at fetch time, so two clones of the same dfam-lib tag can build different
-# code.
-smitten = { git = "https://github.com/Dfam-consortium/Smitten.git", tag = "1.0.2" }
+smitten.workspace = true
