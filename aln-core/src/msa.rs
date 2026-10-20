@@ -371,20 +371,30 @@ impl InsertionPolicy {
 
 /// One instance to be placed into the alignment.
 ///
-/// The two gapped strings must be equal-length and describe the same pairwise
-/// alignment — exactly what [`Alignment::gapped`](crate::align::Alignment::gapped)
-/// returns, with the reference as the subject.
+/// The two gapped strings must be equal-length, describe the same pairwise
+/// alignment, and read **in the reference's orientation**: with its gaps
+/// removed, `gapped_reference` is exactly `reference[ref_start..]` for its
+/// length, and [`assemble_msa`] rejects a member where it is not.  For a
+/// minus-strand alignment that means the instance row is the
+/// reverse-complemented instance.  With the reference as the subject,
+/// [`Alignment::gapped_on_subject`](crate::align::Alignment::gapped_on_subject)
+/// returns this layout; [`Alignment::gapped`](crate::align::Alignment::gapped)
+/// does not on the minus strand (it reads in query order).
+///
+/// `orient` records which strand of the instance was aligned.  It is carried
+/// onto the row as metadata and does **not** transform the rows.
 #[derive(Debug, Clone)]
 pub struct MsaMember<'a> {
     pub name: &'a str,
-    /// Gapped instance (query) row.
+    /// Gapped instance (query) row, in the reference's orientation.
     pub gapped_query: &'a [u8],
-    /// Gapped reference (subject) row.
+    /// Gapped reference (subject) row, reading forward from `ref_start`.
     pub gapped_reference: &'a [u8],
     /// 0-based offset into the ungapped reference where this alignment starts.
     pub ref_start: usize,
     /// Forward-strand source coordinates of the instance, if known.
     pub span: Option<Span>,
+    /// Strand of the instance that aligned (metadata only; see above).
     pub orient: Strand,
 }
 
@@ -419,6 +429,23 @@ pub fn assemble_msa(
                 reference.len()
             )));
         }
+        // The reference row must be the reference itself, read forward.  A
+        // minus-strand row left in query order (`Alignment::gapped`) fails here
+        // instead of being placed backwards against the reference columns.
+        let window = &reference[m.ref_start..m.ref_start + consumed];
+        let row = m.gapped_reference.iter().copied().filter(|&b| !seq::is_structural(b));
+        if let Some(k) = row.zip(window).position(|(a, &b)| !same_base(a, b)) {
+            return Err(Error::Msa(format!(
+                "member {:?} ({:?} strand): reference row differs from the reference at offset {} \
+                 (row {:?}, reference {:?}); rows must read in the reference's orientation \
+                 (Alignment::gapped_on_subject)",
+                m.name,
+                m.orient,
+                m.ref_start + k,
+                m.gapped_reference.iter().copied().filter(|&b| !seq::is_structural(b)).nth(k).map(char::from),
+                char::from(window[k])
+            )));
+        }
     }
 
     match policy {
@@ -426,6 +453,14 @@ pub fn assemble_msa(
         InsertionPolicy::GrowPerSlot => assemble_grow(reference, ref_name, members),
         InsertionPolicy::GrowIncremental => assemble_incremental(reference, ref_name, members),
     }
+}
+
+/// Case-insensitive base identity for the reference-row check; `N` matches
+/// anything, since a reference row parsed from an alignment file may carry an
+/// `N` where the caller's reference has an IUPAC code or vice versa.
+fn same_base(a: u8, b: u8) -> bool {
+    let (a, b) = (a.to_ascii_uppercase(), b.to_ascii_uppercase());
+    a == b || a == b'N' || b == b'N'
 }
 
 /// GIRI's incremental star merge — a port of `MultipleAlignment::
@@ -720,6 +755,41 @@ mod tests {
             span: Some(Span::new(0, seq::ungapped_len(q) as u64).unwrap()),
             orient: Strand::Plus,
         }
+    }
+
+    #[test]
+    fn a_reference_row_that_is_not_the_reference_is_rejected() {
+        // A minus-strand alignment left in query order: the reference row is
+        // the reverse complement of the reference window.
+        let reference = b"AACGTGG";
+        let m = member("x", b"ACGTT", b"ACGTT", 0);
+        assert!(assemble_msa(reference, "ref", &[m], InsertionPolicy::Drop).is_err());
+        // Case and N do not count as differences.
+        let ok = member("y", b"aacgN", b"aacgN", 0);
+        assert!(assemble_msa(reference, "ref", &[ok], InsertionPolicy::Drop).is_ok());
+    }
+
+    #[test]
+    fn a_minus_strand_member_from_gapped_on_subject_lines_up() {
+        use crate::align::{Alignment, EditOp, EditScript};
+        // The instance is the reverse complement of the reference with one
+        // substitution; it aligns on the minus strand.
+        let reference = b"AACGTGGCAT";
+        let instance = seq::revcomp(b"AACGTCGCAT"); // G>C at reference offset 5
+        let mut e = EditScript::new();
+        e.push(EditOp::Sub, 10);
+        let a = Alignment::new("inst", "ref", 0, 0, Strand::Minus, 10, e);
+        let (q, r) = a.gapped_on_subject(&instance, reference).unwrap();
+        let mut m = member("inst", &q, &r, 0);
+        m.orient = Strand::Minus;
+        let msa = assemble_msa(reference, "ref", &[m], InsertionPolicy::Drop).unwrap();
+        let row = &msa.instance(0).unwrap().seq;
+        assert_eq!(row.as_slice(), b"AACGTCGCAT", "instance reads along the reference");
+        assert_eq!(msa.instance(0).unwrap().orient, Strand::Minus);
+        // The query-order rows from `gapped` are refused rather than misplaced.
+        let (q, r) = a.gapped(&instance, reference).unwrap();
+        let bad = member("inst", &q, &r, 0);
+        assert!(assemble_msa(reference, "ref", &[bad], InsertionPolicy::Drop).is_err());
     }
 
     #[test]
